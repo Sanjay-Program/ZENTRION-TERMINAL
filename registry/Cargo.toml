@@ -1,0 +1,14 @@
+[package]
+name = "z-registry"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+z-core = { path = "../core" }
+z-native = { path = "../native" }
+z-tool = { path = "../nativetool" }
+z-version = { path = "../version" }
+serde.workspace = true
+serde_json.workspace = true

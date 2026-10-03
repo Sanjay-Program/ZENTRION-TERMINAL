@@ -1,0 +1,58 @@
+{
+  "schema_version": "1",
+  "id": "org.zentrion.tools.gitleaks",
+  "name": "gitleaks",
+  "display_name": "Gitleaks",
+  "version": "0.0.0",
+  "description": "Detect hardcoded secrets in git repositories",
+  "publisher": {
+    "name": "Upstream",
+    "id": "pub_upstream_gitleaks"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/gitleaks/gitleaks",
+  "categories": [
+    "security",
+    "privacy"
+  ],
+  "tags": [
+    "gitleaks"
+  ],
+  "redistribution": "upstream-only",
+  "platforms": [
+    {
+      "os": "linux",
+      "arch": "x86_64",
+      "kind": "native",
+      "abi": "gnu",
+      "url": "https://github.com/gitleaks/gitleaks/releases",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 1
+    },
+    {
+      "os": "macos",
+      "arch": "arm64",
+      "kind": "native",
+      "url": "https://github.com/gitleaks/gitleaks/releases",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 1
+    },
+    {
+      "os": "windows",
+      "arch": "x86_64",
+      "kind": "native",
+      "abi": "msvc",
+      "url": "https://github.com/gitleaks/gitleaks/releases",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 1
+    }
+  ],
+  "permissions": {
+    "network": false,
+    "filesystem": "project",
+    "process": true
+  },
+  "execution": {
+    "binary": "gitleaks"
+  }
+}

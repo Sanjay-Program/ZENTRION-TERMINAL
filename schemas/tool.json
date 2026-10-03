@@ -1,0 +1,82 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Zentrion Tool Schema",
+  "type": "object",
+  "required": ["apiVersion", "kind", "metadata"],
+  "properties": {
+    "apiVersion": {
+      "type": "string",
+      "const": "zentrion.tool/v1"
+    },
+    "kind": {
+      "type": "string",
+      "const": "Tool"
+    },
+    "metadata": {
+      "type": "object",
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "type": "string" },
+        "version": { "type": "string" },
+        "description": { "type": "string" },
+        "license": { "type": "string" },
+        "categories": { "type": "array", "items": { "type": "string" } },
+        "homepage": { "type": "string" }
+      }
+    },
+    "platforms": { "type": "array", "items": { "type": "string" } },
+    "architectures": { "type": "array", "items": { "type": "string" } },
+    "permissions": {
+      "type": "object",
+      "properties": {
+        "network": { "type": "boolean" },
+        "filesystem": { "type": "string", "enum": ["none", "workspace", "home", "system"] },
+        "process": { "type": "boolean" },
+        "raw_sockets": { "type": "boolean" }
+      }
+    },
+    "source": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "enum": ["upstream", "mirror", "build-from-source"] },
+        "url": { "type": "string" },
+        "method": { "type": "string", "enum": ["package-manager", "binary", "source-build", "script"] }
+      }
+    },
+    "integrity": {
+      "type": "object",
+      "properties": {
+        "checksum": { "type": "string" },
+        "signature": { "type": "string" },
+        "provenance": { "type": "string" }
+      }
+    },
+    "dependencies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "provided_by": { "type": "string" }
+        }
+      }
+    },
+    "risk": {
+      "type": "object",
+      "properties": {
+        "level": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"] },
+        "network": { "type": "string" },
+        "notes": { "type": "string" }
+      }
+    },
+    "lifecycle": {
+      "type": "object",
+      "properties": {
+        "install_behavior": { "type": "string" },
+        "uninstall": { "type": "string" },
+        "update_channel": { "type": "string" }
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,16 @@
+[package]
+name = "z-exec"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+z-core = { path = "../core" }
+z-policy = { path = "../policy" }
+z-capability = { path = "../capability" }
+z-identity = { path = "../identity" }
+z-audit = { path = "../audit" }
+chrono.workspace = true
+serde.workspace = true
+log.workspace = true

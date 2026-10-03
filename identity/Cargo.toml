@@ -1,0 +1,11 @@
+[package]
+name = "z-identity"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+z-core = { path = "../core" }
+serde.workspace = true
+uuid.workspace = true

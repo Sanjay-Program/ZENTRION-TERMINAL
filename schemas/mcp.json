@@ -1,0 +1,46 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Zentrion MCP Server Schema",
+  "type": "object",
+  "required": ["apiVersion", "kind", "metadata"],
+  "properties": {
+    "apiVersion": { "type": "string", "const": "zentrion.mcp/v1" },
+    "kind": { "type": "string", "const": "MCPServer" },
+    "metadata": {
+      "type": "object",
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "type": "string" },
+        "version": { "type": "string" },
+        "transport": { "type": "string", "enum": ["stdio", "sse", "streamable-http"] },
+        "command": { "type": "array", "items": { "type": "string" } },
+        "publisher": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string" },
+            "key": { "type": "string" }
+          }
+        }
+      }
+    },
+    "trust": {
+      "type": "object",
+      "properties": {
+        "level": { "type": "string", "enum": ["community", "verified", "first-party"] },
+        "verified_at": { "type": "string" }
+      }
+    },
+    "permissions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "tool": { "type": "string" },
+          "action": { "type": "string" },
+          "resource": { "type": "string" }
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

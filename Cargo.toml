@@ -1,0 +1,39 @@
+[workspace]
+members = [
+    "core",
+    "cli",
+    "policy",
+    "capability",
+    "exec",
+    "audit",
+    "identity",
+    "projects",
+    "version",
+    "native",
+    "compat",
+    "package",
+    "registry",
+    "nativetool",
+    "tests",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Zentrion Team"]
+license = "BUSL-1.1"
+repository = "https://github.com/zentrion/terminal"
+
+[workspace.dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+clap = { version = "4.4", features = ["derive"] }
+tokio = { version = "1.35", features = ["full"] }
+anyhow = "1.0"
+thiserror = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.6", features = ["v4", "serde"] }
+log = "0.4"
+env_logger = "0.10"

@@ -1,0 +1,13 @@
+[package]
+name = "z-package"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+z-core = { path = "../core" }
+z-audit = { path = "../audit" }
+z-native = { path = "../native" }
+serde.workspace = true
+serde_json.workspace = true

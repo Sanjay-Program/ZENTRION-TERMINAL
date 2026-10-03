@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zentrion.dev/schemas/policy-v1.json",
+  "title": "Zentrion Policy v1",
+  "type": "object",
+  "required": ["apiVersion", "kind", "metadata"],
+  "additionalProperties": false,
+  "properties": {
+    "apiVersion": {"const": "zentrion.policy/v1"},
+    "kind": {"const": "Policy"},
+    "metadata": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": {"type": "string"},
+        "description": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "defaults": {
+      "type": "object",
+      "properties": {"mode": {"enum": ["deny", "allow-workspace"]}},
+      "additionalProperties": false
+    },
+    "filesystem": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "read": {"$ref": "#/$defs/globs"},
+        "write": {"$ref": "#/$defs/globs"},
+        "delete": {"$ref": "#/$defs/globs"}
+      }
+    },
+    "network": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allow": {"$ref": "#/$defs/hosts"},
+        "listen": {"$ref": "#/$defs/hosts"}
+      }
+    },
+    "secrets": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {"read": {"type": "boolean"}, "write": {"type": "boolean"}}
+    },
+    "system": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {"admin": {"type": "boolean"}}
+    },
+    "process": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {"spawn": {"type": "array", "items": {"type": "string"}}}
+    },
+    "ai": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "models": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {"allow": {"type": "array", "items": {"type": "string"}}}
+        },
+        "send_secrets": {"type": "boolean", "default": false},
+        "max_tokens_per_day": {"type": "integer", "minimum": 0}
+      }
+    },
+    "agents": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "capabilities"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {"type": "string"},
+          "capabilities": {"type": "object"},
+          "resources": {"type": "object"}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "globs": {"type": "array", "items": {"type": "string", "pattern": "^(path:)?[^\\u0000]+$"}},
+    "hosts": {"type": "array", "items": {"type": "string", "pattern": "^(host:[^:]+:[0-9]+|cidr:[0-9.]+/[0-9]+|port:[0-9]+)$"}}
+  }
+}

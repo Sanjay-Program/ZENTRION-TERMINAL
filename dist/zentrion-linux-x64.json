@@ -1,0 +1,7 @@
+{
+	"name": "zentrion-linux-x64",
+	"os": "linux",
+	"arch": "x64",
+	"binary": "bin/z",
+	"archive": "zentrion-linux-x64.tar.gz"
+}

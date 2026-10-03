@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Zentrion Error Schema",
+  "type": "object",
+  "required": ["code", "human"],
+  "properties": {
+    "code": { "type": "string" },
+    "human": { "type": "string" },
+    "detail": { "type": "object" },
+    "cause": { "type": "object" },
+    "audit_id": { "type": "string" }
+  },
+  "additionalProperties": false
+}

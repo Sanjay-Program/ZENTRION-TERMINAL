@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Zentrion AI Config Schema",
+  "type": "object",
+  "required": ["apiVersion", "kind"],
+  "properties": {
+    "apiVersion": { "type": "string", "const": "zentrion.ai/v1" },
+    "kind": { "type": "string", "const": "AIConfig" },
+    "defaults": {
+      "type": "object",
+      "properties": {
+        "provider": { "type": "string" },
+        "model": { "type": "string" },
+        "send_code": { "type": "boolean" },
+        "cost_budget": { "type": "string" }
+      }
+    },
+    "providers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "type": { "type": "string", "enum": ["openai", "anthropic", "gemini", "ollama", "local", "custom"] },
+          "endpoint": { "type": "string" },
+          "api_key_ref": { "type": "string" }
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

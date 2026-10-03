@@ -1,0 +1,200 @@
+{
+  "schema_version": "1",
+  "registry_name": "zentrion-test",
+  "tools": [
+    {
+      "id": "org.zentrion.tools.curl",
+      "name": "curl",
+      "version": "0.0.0",
+      "display_name": "curl",
+      "description": "Command-line HTTP/HTTPS client",
+      "categories": [
+        "development",
+        "network"
+      ],
+      "tags": [
+        "curl"
+      ],
+      "publisher_id": "pub_upstream_curl",
+      "publisher_name": "Upstream",
+      "trust": "community-verified",
+      "license": "curl",
+      "manifest": "tools/curl-catalog.json"
+    },
+    {
+      "id": "org.zentrion.tools.dnsx",
+      "name": "dnsx",
+      "version": "1.0.0",
+      "display_name": "dnsx",
+      "description": "Resolve DNS A/AAAA records with the native OS resolver",
+      "categories": [
+        "network"
+      ],
+      "tags": [
+        "native",
+        "zentrion"
+      ],
+      "publisher_id": "pub_zentrion",
+      "publisher_name": "Zentrion",
+      "trust": "community-verified",
+      "license": "Apache-2.0",
+      "manifest": "tools/dnsx-1.0.0.json"
+    },
+    {
+      "id": "org.zentrion.tools.gitleaks",
+      "name": "gitleaks",
+      "version": "0.0.0",
+      "display_name": "Gitleaks",
+      "description": "Detect hardcoded secrets in git repositories",
+      "categories": [
+        "security",
+        "privacy"
+      ],
+      "tags": [
+        "gitleaks"
+      ],
+      "publisher_id": "pub_upstream_gitleaks",
+      "publisher_name": "Upstream",
+      "trust": "community-verified",
+      "license": "MIT",
+      "manifest": "tools/gitleaks-catalog.json"
+    },
+    {
+      "id": "org.zentrion.tools.hello-zen",
+      "name": "hello-zen",
+      "version": "1.0.0",
+      "display_name": "Hello Zentrion",
+      "description": "Harmless reference tool used to exercise the installer and runner",
+      "categories": [
+        "development",
+        "testing"
+      ],
+      "tags": [
+        "reference",
+        "demo",
+        "test"
+      ],
+      "publisher_id": "pub_zentrion",
+      "publisher_name": "Zentrion",
+      "trust": "community-verified",
+      "license": "Apache-2.0",
+      "manifest": "tools/hello-zen-1.0.0.json"
+    },
+    {
+      "id": "org.zentrion.tools.hello-zen",
+      "name": "hello-zen",
+      "version": "1.1.0",
+      "display_name": "Hello Zentrion",
+      "description": "Harmless reference tool used to exercise the installer and runner",
+      "categories": [
+        "development",
+        "testing"
+      ],
+      "tags": [
+        "reference",
+        "demo",
+        "test"
+      ],
+      "publisher_id": "pub_zentrion",
+      "publisher_name": "Zentrion",
+      "trust": "community-verified",
+      "license": "Apache-2.0",
+      "manifest": "tools/hello-zen-1.1.0.json"
+    },
+    {
+      "id": "org.zentrion.tools.jq",
+      "name": "jq",
+      "version": "0.0.0",
+      "display_name": "jq",
+      "description": "Command-line JSON processor",
+      "categories": [
+        "development",
+        "data"
+      ],
+      "tags": [
+        "jq"
+      ],
+      "publisher_id": "pub_upstream_jq",
+      "publisher_name": "Upstream",
+      "trust": "community-verified",
+      "license": "MIT",
+      "manifest": "tools/jq-catalog.json"
+    },
+    {
+      "id": "org.zentrion.tools.nmap",
+      "name": "nmap",
+      "version": "0.0.0",
+      "display_name": "Nmap",
+      "description": "Network exploration and security auditing (authorized testing only)",
+      "categories": [
+        "security",
+        "network"
+      ],
+      "tags": [
+        "nmap"
+      ],
+      "publisher_id": "pub_upstream_nmap",
+      "publisher_name": "Upstream",
+      "trust": "community-verified",
+      "license": "NPSL",
+      "manifest": "tools/nmap-catalog.json"
+    },
+    {
+      "id": "org.zentrion.tools.procinfo",
+      "name": "procinfo",
+      "version": "1.0.0",
+      "display_name": "procinfo",
+      "description": "Inspect a process by PID using native OS APIs",
+      "categories": [
+        "system"
+      ],
+      "tags": [
+        "native",
+        "zentrion"
+      ],
+      "publisher_id": "pub_zentrion",
+      "publisher_name": "Zentrion",
+      "trust": "community-verified",
+      "license": "Apache-2.0",
+      "manifest": "tools/procinfo-1.0.0.json"
+    },
+    {
+      "id": "org.zentrion.tools.sysinfo",
+      "name": "sysinfo",
+      "version": "1.0.0",
+      "display_name": "sysinfo",
+      "description": "Report CPU, memory and host information natively",
+      "categories": [
+        "system"
+      ],
+      "tags": [
+        "native",
+        "zentrion"
+      ],
+      "publisher_id": "pub_zentrion",
+      "publisher_name": "Zentrion",
+      "trust": "community-verified",
+      "license": "Apache-2.0",
+      "manifest": "tools/sysinfo-1.0.0.json"
+    },
+    {
+      "id": "org.zentrion.tools.trivy",
+      "name": "trivy",
+      "version": "0.0.0",
+      "display_name": "Trivy",
+      "description": "Vulnerability and misconfiguration scanner",
+      "categories": [
+        "security",
+        "devops"
+      ],
+      "tags": [
+        "trivy"
+      ],
+      "publisher_id": "pub_upstream_trivy",
+      "publisher_name": "Upstream",
+      "trust": "community-verified",
+      "license": "Apache-2.0",
+      "manifest": "tools/trivy-catalog.json"
+    }
+  ]
+}

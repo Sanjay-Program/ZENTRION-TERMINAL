@@ -1,0 +1,53 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Zentrion Plugin Schema",
+  "type": "object",
+  "required": ["apiVersion", "kind", "metadata"],
+  "properties": {
+    "apiVersion": { "type": "string", "const": "zentrion.plugin/v1" },
+    "kind": { "type": "string", "const": "Plugin" },
+    "metadata": {
+      "type": "object",
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "type": "string" },
+        "version": { "type": "string" },
+        "api_compat": { "type": "string" },
+        "publisher": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string" },
+            "key": { "type": "string" }
+          }
+        },
+        "license": { "type": "string" }
+      }
+    },
+    "permissions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "action": { "type": "string" },
+          "resource": { "type": "string" }
+        }
+      }
+    },
+    "type": { "type": "string", "enum": ["cli", "tool", "ai", "agent", "security", "mcp", "ide"] },
+    "entry": {
+      "type": "object",
+      "properties": {
+        "runtime": { "type": "string", "enum": ["native", "wasm", "script"] },
+        "artifact": { "type": "string" },
+        "integrity": {
+          "type": "object",
+          "properties": {
+            "checksum": { "type": "string" },
+            "signature": { "type": "string" }
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

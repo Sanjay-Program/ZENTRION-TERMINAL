@@ -1,0 +1,91 @@
+# ============================================================
+# ZENTRION TERMINAL — .gitignore
+# ============================================================
+
+# Rust build artifacts
+/target/
+**/*.rs.bk
+*.pdb
+
+# Cargo lock — keep for binaries, remove for libraries
+# Cargo.lock   ← we keep this (binary project)
+
+# Editor & IDE
+.vscode/settings.json
+.vscode/launch.json
+.vscode/*.code-workspace
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Environment & secrets
+.env
+.env.*
+*.key
+*.pem
+*.p12
+*.pfx
+secrets/
+.secrets/
+
+# Distribution artifacts (binaries + tarballs)
+# We version-control the dist/ metadata (JSON) but not the binaries
+dist/*.tar.gz
+dist/*.tar.gz.sha256
+dist/zentrion-linux-x64/
+dist/zentrion-macos-*/
+dist/zentrion-windows-*/
+
+# OS-generated
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+logs/
+audit-*.log
+
+# Test output
+/tmp/
+test-output/
+coverage/
+*.profraw
+*.profdata
+lcov.info
+
+# Temporary files
+*.tmp
+*.bak
+*.orig
+*.patch
+
+# Package manager
+node_modules/
+.npm/
+
+# Python (build scripts)
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+venv/
+.venv/
+
+# Generated documentation
+/site/
+
+# GitHub Codespaces / Devcontainer
+.devcontainer/
+
+# Custom local config (not for sharing)
+.zentrion-dev/
+local.toml

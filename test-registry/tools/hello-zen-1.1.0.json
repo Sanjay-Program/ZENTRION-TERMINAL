@@ -1,0 +1,41 @@
+{
+  "schema_version": "1",
+  "id": "org.zentrion.tools.hello-zen",
+  "name": "hello-zen",
+  "display_name": "Hello Zentrion",
+  "version": "1.1.0",
+  "description": "Harmless reference tool used to exercise the installer and runner",
+  "publisher": {
+    "name": "Zentrion",
+    "id": "pub_zentrion"
+  },
+  "license": "Apache-2.0",
+  "categories": [
+    "development",
+    "testing"
+  ],
+  "tags": [
+    "reference",
+    "demo",
+    "test"
+  ],
+  "platforms": [
+    {
+      "os": "linux",
+      "arch": "x86_64",
+      "abi": "gnu",
+      "url": "file:///home/sanjay/zentrion/terminal/test-registry/artifacts/hello-zen-1.1.0.tar",
+      "sha256": "sha256:7beed137e8f2321babff0d50f4649b788fa4a25b75bc237813d9c374c2688317",
+      "size": 10240,
+      "kind": "native"
+    }
+  ],
+  "permissions": {
+    "network": false,
+    "filesystem": "none",
+    "process": true
+  },
+  "execution": {
+    "binary": "bin/hello-zen"
+  }
+}

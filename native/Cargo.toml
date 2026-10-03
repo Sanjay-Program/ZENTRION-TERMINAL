@@ -1,0 +1,17 @@
+[package]
+name = "z-native"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+z-core = { path = "../core" }
+serde.workspace = true
+serde_json.workspace = true
+
+[features]
+# Network transport for the registry client and artifact downloads. Off by
+# default: Zentrion's runtime is fully functional offline, and enabling this is
+# an explicit choice.
+http = []

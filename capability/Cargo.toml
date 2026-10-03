@@ -1,0 +1,12 @@
+[package]
+name = "z-capability"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+z-core = { path = "../core" }
+serde.workspace = true
+chrono.workspace = true
+uuid.workspace = true

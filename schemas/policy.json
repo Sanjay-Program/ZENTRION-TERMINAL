@@ -1,0 +1,101 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Zentrion Policy Schema",
+  "type": "object",
+  "required": ["apiVersion", "kind", "metadata"],
+  "properties": {
+    "apiVersion": {
+      "type": "string",
+      "const": "zentrion.policy/v1"
+    },
+    "kind": {
+      "type": "string",
+      "const": "Policy"
+    },
+    "metadata": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" }
+      }
+    },
+    "defaults": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["allow", "deny"]
+        }
+      }
+    },
+    "filesystem": {
+      "type": "object",
+      "properties": {
+        "read": { "type": "array", "items": { "type": "string" } },
+        "write": { "type": "array", "items": { "type": "string" } },
+        "delete": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "network": {
+      "type": "object",
+      "properties": {
+        "allow": { "type": "array", "items": { "type": "string" } },
+        "listen": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "secrets": {
+      "type": "object",
+      "properties": {
+        "read": { "type": "boolean" },
+        "write": { "type": "boolean" }
+      }
+    },
+    "system": {
+      "type": "object",
+      "properties": {
+        "admin": { "type": "boolean" }
+      }
+    },
+    "process": {
+      "type": "object",
+      "properties": {
+        "spawn": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "ai": {
+      "type": "object",
+      "properties": {
+        "models": {
+          "type": "object",
+          "properties": {
+            "allow": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "send_secrets": { "type": "boolean" },
+        "max_tokens_per_day": { "type": "integer" }
+      }
+    },
+    "agents": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string" },
+          "capabilities": { "type": "object" },
+          "resources": {
+            "type": "object",
+            "properties": {
+              "cpu": { "type": "string" },
+              "memory": { "type": "string" },
+              "runtime": { "type": "string" },
+              "network": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

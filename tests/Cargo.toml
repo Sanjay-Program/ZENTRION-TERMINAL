@@ -1,0 +1,18 @@
+[package]
+name = "z-integration-tests"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[[test]]
+name = "cli_integration"
+path = "cli_integration.rs"
+
+[dependencies]
+
+[[test]]
+name = "tool_integration"
+path = "tool_integration.rs"
