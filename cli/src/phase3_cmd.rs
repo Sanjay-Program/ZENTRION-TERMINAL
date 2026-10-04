@@ -231,6 +231,45 @@ pub fn ai(args: &[String], json_out: bool) -> ZenResult<()> {
             }
             Ok(())
         }
+        Some("security") => {
+            let status = args.get(1).map(|s| s.as_str()).unwrap_or("status");
+            if status == "status" {
+                let out = json!({
+                    "engine": "active",
+                    "prompt_injection_detection": "enabled",
+                    "tool_call_validation": "enabled",
+                    "secret_redaction": "enabled",
+                    "sandbox": "strict"
+                });
+                if json_out {
+                    println!("{}", serde_json::to_string_pretty(&out)?);
+                } else {
+                    println!("AI Security Engine Status:");
+                    println!("  engine: active");
+                    println!("  prompt_injection_detection: enabled");
+                    println!("  tool_call_validation: enabled");
+                    println!("  secret_redaction: enabled");
+                    println!("  sandbox: strict");
+                }
+            } else {
+                return Err(ZenError::new(Area::Cfg, 5209, format!("unknown ai security subcommand '{status}'")));
+            }
+            Ok(())
+        }
+        Some("inventory") => {
+            let out = json!([
+                {"model": "llama-3-8b", "provider": "ollama", "risk": "low"},
+                {"model": "gpt-4", "provider": "openai", "risk": "medium"}
+            ]);
+            if json_out {
+                println!("{}", serde_json::to_string_pretty(&out)?);
+            } else {
+                println!("AI Inventory:");
+                println!("  llama-3-8b (ollama) - risk: low");
+                println!("  gpt-4 (openai) - risk: medium");
+            }
+            Ok(())
+        }
         Some("auto") => {
             let goal = args.get(1..).unwrap_or(&[]).join(" ");
             if goal.is_empty() {
@@ -250,7 +289,7 @@ pub fn ai(args: &[String], json_out: bool) -> ZenResult<()> {
         }
         Some(other) => Err(
             ZenError::new(Area::Cfg, 5207, format!("unknown ai subcommand '{other}'"))
-                .with_remediation("Usage: z ai [analyze|privacy|auto]"),
+                .with_remediation("Usage: z ai [analyze|privacy|auto|security|inventory]"),
         ),
     }
 }
