@@ -10,7 +10,7 @@
                          T E R M I N A L
 ```
 
-**The universal developer + AI + cybersecurity runtime.**  
+**The world's #1 terminal. A lightweight, fully modifiable, universal developer + AI + cybersecurity runtime that performs everything.**  
 Nothing — human, AI, plugin, IDE, or CI — touches the OS without an explicit, policy-checked, audited capability.
 
 [![License: BUSL-1.1](https://img.shields.io/badge/License-BUSL--1.1-orange.svg?style=flat-square)](LICENSE)

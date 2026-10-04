@@ -1,7 +1,7 @@
 # 01 — VISION
 
 ## Zentrion in one sentence
-A universal developer + AI + cybersecurity runtime where **nothing — human, AI agent, plugin, IDE, or CI job — touches the operating system without an explicit, policy-checked, audited capability.**
+A universal, lightweight, fully modifiable developer + AI + cybersecurity runtime designed to be the world's #1 terminal that performs everything. **Nothing — human, AI agent, plugin, IDE, or CI job — touches the operating system without an explicit, policy-checked, audited capability.**
 
 ## The product principle
 
@@ -70,7 +70,8 @@ capability system, and sandbox still have to approve and constrain.
 | Local-first | Full function offline except downloads/model pulls |
 | Privacy-first | No telemetry without explicit opt-in; no code/secret upload |
 | Model-agnostic | OpenAI/Gemini/Anthropic/local adapters, no core hardcoding |
-| Lightweight | Core runtime small; tools/models lazy-installed |
+| Lightweight & Fast | Core runtime is blazing fast and minimal; tools/models are lazy-installed |
+| Modifiable & Changeable | Every aspect of the terminal, policy, and workflow can be customized |
 | Cross-platform | Windows/macOS/Linux, honest about per-OS isolation limits |
 | Extensible | Plugins, tools, MCP servers via manifests + capability grants |
 | Auditable | Every consequential action produces a signed-local audit event |
