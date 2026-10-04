@@ -1,14 +1,38 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
+use anyhow::Result;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct McpServerConfig {
+    pub name: String,
+    pub command: String,
+    pub args: Vec<String>,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+pub struct McpGateway {
+    config: McpServerConfig,
+}
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
+impl McpGateway {
+    pub fn new(config: McpServerConfig) -> Self {
+        Self { config }
+    }
+
+    pub async fn run(&self) -> Result<()> {
+        // run them via stdio
+        let mut child = tokio::process::Command::new(&self.config.command)
+            .args(&self.config.args)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()?;
+
+        // registering their tools via standard ZENTRION policy/capabilities
+        self.register_tools();
+
+        child.wait().await?;
+        Ok(())
+    }
+
+    fn register_tools(&self) {
+        // Mock registration
     }
 }

@@ -1,5 +1,5 @@
 [package]
-name = "mcp"
+name = "sdk"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -8,8 +8,6 @@ repository.workspace = true
 
 [dependencies]
 tokio = { workspace = true }
-anyhow = { workspace = true }
 serde = { workspace = true }
-serde_json = { workspace = true }
+anyhow = { workspace = true }
 z-core = { path = "../core" }
-z-capability = { path = "../capability" }

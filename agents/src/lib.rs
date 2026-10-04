@@ -1,14 +1,24 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
+use anyhow::Result;
+
+pub struct AgentRuntime {
+    memory_limit: usize,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+impl AgentRuntime {
+    pub fn new(memory_limit: usize) -> Self {
+        Self { memory_limit }
+    }
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
+    pub async fn start(&self) -> Result<()> {
+        loop {
+            // loop for checking memory and limits
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+            self.check_limits()?;
+        }
+    }
+
+    fn check_limits(&self) -> Result<()> {
+        // Dummy check
+        Ok(())
     }
 }

@@ -7,3 +7,10 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+tokio = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
+z-core = { path = "../core" }
+z-ai = { path = "../ai", package = "ai" }
+z-exec = { path = "../exec" }
+z-capability = { path = "../capability" }

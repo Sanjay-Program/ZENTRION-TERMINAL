@@ -1,5 +1,5 @@
 [package]
-name = "mcp"
+name = "plugin"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -10,6 +10,3 @@ repository.workspace = true
 tokio = { workspace = true }
 anyhow = { workspace = true }
 serde = { workspace = true }
-serde_json = { workspace = true }
-z-core = { path = "../core" }
-z-capability = { path = "../capability" }
