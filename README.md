@@ -170,7 +170,35 @@ sha256sum -c zentrion-linux-x64.tar.gz.sha256
   --sha256 325ebcb36115976c5c4de30a093181c9c12623fd675febfa1da2072a49d9c442
 ```
 
-> **Windows & macOS** builds are in active beta deployment. The unified Rust codebase has been completed and verified across all targets!
+### macOS (Apple Silicon & Intel) (Current Stable Release — Phase 14)
+
+```sh
+# Download the verified binary
+curl -LO https://github.com/Sanjay-Program/ZENTRION-TERMINAL/releases/download/v1.14.0/zentrion-macos-universal.tar.gz
+curl -LO https://github.com/Sanjay-Program/ZENTRION-TERMINAL/releases/download/v1.14.0/zentrion-macos-universal.tar.gz.sha256
+
+# Verify checksum BEFORE installing
+shasum -a 256 -c zentrion-macos-universal.tar.gz.sha256
+
+# Install (no root required)
+./scripts/install.sh --archive zentrion-macos-universal.tar.gz
+```
+
+### Windows (x64 & ARM64) (Current Stable Release — Phase 14)
+
+```powershell
+# Download the verified MSI installer
+Invoke-WebRequest -Uri "https://github.com/Sanjay-Program/ZENTRION-TERMINAL/releases/download/v1.14.0/Zentrion-Windows-x64.msi" -OutFile "Zentrion-Windows.msi"
+Invoke-WebRequest -Uri "https://github.com/Sanjay-Program/ZENTRION-TERMINAL/releases/download/v1.14.0/Zentrion-Windows-x64.msi.sha256" -OutFile "Zentrion-Windows.msi.sha256"
+
+# Verify checksum BEFORE installing
+$expectedHash = Get-Content Zentrion-Windows.msi.sha256
+$actualHash = (Get-FileHash Zentrion-Windows.msi -Algorithm SHA256).Hash
+if ($actualHash -eq $expectedHash.Split(' ')[0].ToUpper()) { echo "Checksum OK" } else { echo "Checksum FAILED" }
+
+# Install (No admin required)
+Start-Process -Wait -FilePath msiexec.exe -ArgumentList "/i Zentrion-Windows.msi /qb"
+```
 
 ---
 
@@ -222,14 +250,13 @@ echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
 
 ### Option 3 — Windows
 
-> **Phase 2 — Coming Soon.** The code is written. Building and installer are in progress.
-
 ```powershell
-# Download from GitHub Releases (when available)
-winget install Zentrion.Terminal
-# or MSI installer from zentriontechnologies.com/terminal/download
+# Download from GitHub Releases
+Invoke-WebRequest -Uri "https://github.com/Sanjay-Program/ZENTRION-TERMINAL/releases/download/v1.14.0/Zentrion-Windows-x64.msi" -OutFile "Zentrion-Windows.msi"
 
-# Add to PATH if needed (winget does this automatically)
+# Install locally (No admin required, installs to %LOCALAPPDATA%\Zentrion)
+Start-Process -Wait -FilePath msiexec.exe -ArgumentList "/i Zentrion-Windows.msi /qb"
+
 # Then verify:
 z doctor
 ```
@@ -240,14 +267,15 @@ z doctor
 
 ### Option 4 — macOS
 
-> **Phase 2 — Coming Soon.**
-
 ```sh
-# Homebrew (when available)
-brew install zentrion/tap/terminal
+# Download universal binary
+curl -LO https://github.com/Sanjay-Program/ZENTRION-TERMINAL/releases/download/v1.14.0/zentrion-macos-universal.tar.gz
 
-# or download from GitHub Releases
-# Install location: ~/Applications/Zentrion or /usr/local/bin/z
+# Install locally
+./scripts/install.sh --archive zentrion-macos-universal.tar.gz
+
+# Verify
+z doctor
 ```
 
 **Supported:** macOS Ventura+, Intel (x86_64) and Apple Silicon (arm64)
