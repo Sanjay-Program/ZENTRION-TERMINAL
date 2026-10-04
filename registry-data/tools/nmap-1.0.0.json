@@ -1,0 +1,31 @@
+{
+  "schema_version": "1",
+  "id": "org.kali.tools.nmap",
+  "name": "nmap",
+  "display_name": "Nmap",
+  "version": "1.0.0",
+  "description": "Network exploration tool and security / port scanner",
+  "publisher": {
+    "name": "Kali Linux",
+    "id": "pub_kali"
+  },
+  "license": "GPL",
+  "categories": [
+    "cybersecurity"
+  ],
+  "tags": [
+    "scanning",
+    "network"
+  ],
+  "platforms": [
+    {
+      "os": "linux",
+      "arch": "x86_64",
+      "abi": "gnu",
+      "url": "https://example.com/kali/nmap.tar.gz",
+      "sha256": "b5a2c96250612366ea272ffac6d9744aaf4b45aacd96aa7cfcb931ee3b558259",
+      "size": 1024,
+      "kind": "native"
+    }
+  ]
+}

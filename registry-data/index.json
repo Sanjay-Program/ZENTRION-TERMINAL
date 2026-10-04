@@ -1,0 +1,197 @@
+{
+  "schema_version": "1",
+  "registry_name": "kali-registry",
+  "tools": [
+    {
+      "id": "org.kali.tools.nmap",
+      "name": "nmap",
+      "version": "1.0.0",
+      "display_name": "Nmap",
+      "description": "Network exploration tool and security / port scanner",
+      "categories": [
+        "cybersecurity"
+      ],
+      "tags": [
+        "scanning",
+        "network"
+      ],
+      "publisher_id": "pub_kali",
+      "publisher_name": "Kali Linux",
+      "trust": "community-verified",
+      "license": "GPL",
+      "manifest": "tools/nmap-1.0.0.json"
+    },
+    {
+      "id": "org.kali.tools.metasploit",
+      "name": "metasploit",
+      "version": "1.0.0",
+      "display_name": "Metasploit",
+      "description": "Penetration testing software",
+      "categories": [
+        "cybersecurity"
+      ],
+      "tags": [
+        "exploitation",
+        "framework"
+      ],
+      "publisher_id": "pub_kali",
+      "publisher_name": "Kali Linux",
+      "trust": "community-verified",
+      "license": "GPL",
+      "manifest": "tools/metasploit-1.0.0.json"
+    },
+    {
+      "id": "org.kali.tools.wireshark",
+      "name": "wireshark",
+      "version": "1.0.0",
+      "display_name": "Wireshark",
+      "description": "Network protocol analyzer",
+      "categories": [
+        "cybersecurity"
+      ],
+      "tags": [
+        "sniffing",
+        "network"
+      ],
+      "publisher_id": "pub_kali",
+      "publisher_name": "Kali Linux",
+      "trust": "community-verified",
+      "license": "GPL",
+      "manifest": "tools/wireshark-1.0.0.json"
+    },
+    {
+      "id": "org.kali.tools.sqlmap",
+      "name": "sqlmap",
+      "version": "1.0.0",
+      "display_name": "Sqlmap",
+      "description": "Automatic SQL injection and database takeover tool",
+      "categories": [
+        "cybersecurity"
+      ],
+      "tags": [
+        "web",
+        "database",
+        "exploitation"
+      ],
+      "publisher_id": "pub_kali",
+      "publisher_name": "Kali Linux",
+      "trust": "community-verified",
+      "license": "GPL",
+      "manifest": "tools/sqlmap-1.0.0.json"
+    },
+    {
+      "id": "org.kali.tools.john",
+      "name": "john",
+      "version": "1.0.0",
+      "display_name": "John",
+      "description": "John the Ripper password cracker",
+      "categories": [
+        "cybersecurity"
+      ],
+      "tags": [
+        "password",
+        "cracking"
+      ],
+      "publisher_id": "pub_kali",
+      "publisher_name": "Kali Linux",
+      "trust": "community-verified",
+      "license": "GPL",
+      "manifest": "tools/john-1.0.0.json"
+    },
+    {
+      "id": "org.kali.tools.aircrack-ng",
+      "name": "aircrack-ng",
+      "version": "1.0.0",
+      "display_name": "Aircrack-ng",
+      "description": "WiFi security auditing tools suite",
+      "categories": [
+        "cybersecurity"
+      ],
+      "tags": [
+        "wireless",
+        "cracking"
+      ],
+      "publisher_id": "pub_kali",
+      "publisher_name": "Kali Linux",
+      "trust": "community-verified",
+      "license": "GPL",
+      "manifest": "tools/aircrack-ng-1.0.0.json"
+    },
+    {
+      "id": "org.kali.tools.gobuster",
+      "name": "gobuster",
+      "version": "1.0.0",
+      "display_name": "Gobuster",
+      "description": "Directory/File, DNS and VHost busting tool",
+      "categories": [
+        "cybersecurity"
+      ],
+      "tags": [
+        "web",
+        "bruteforce"
+      ],
+      "publisher_id": "pub_kali",
+      "publisher_name": "Kali Linux",
+      "trust": "community-verified",
+      "license": "GPL",
+      "manifest": "tools/gobuster-1.0.0.json"
+    },
+    {
+      "id": "org.kali.tools.burpsuite",
+      "name": "burpsuite",
+      "version": "1.0.0",
+      "display_name": "Burpsuite",
+      "description": "Web vulnerability scanner",
+      "categories": [
+        "cybersecurity"
+      ],
+      "tags": [
+        "web",
+        "scanner"
+      ],
+      "publisher_id": "pub_kali",
+      "publisher_name": "Kali Linux",
+      "trust": "community-verified",
+      "license": "GPL",
+      "manifest": "tools/burpsuite-1.0.0.json"
+    },
+    {
+      "id": "org.kali.tools.hydra",
+      "name": "hydra",
+      "version": "1.0.0",
+      "display_name": "Hydra",
+      "description": "Network logon cracker",
+      "categories": [
+        "cybersecurity"
+      ],
+      "tags": [
+        "password",
+        "bruteforce"
+      ],
+      "publisher_id": "pub_kali",
+      "publisher_name": "Kali Linux",
+      "trust": "community-verified",
+      "license": "GPL",
+      "manifest": "tools/hydra-1.0.0.json"
+    },
+    {
+      "id": "org.kali.tools.hashcat",
+      "name": "hashcat",
+      "version": "1.0.0",
+      "display_name": "Hashcat",
+      "description": "World's fastest and most advanced password recovery utility",
+      "categories": [
+        "cybersecurity"
+      ],
+      "tags": [
+        "password",
+        "cracking"
+      ],
+      "publisher_id": "pub_kali",
+      "publisher_name": "Kali Linux",
+      "trust": "community-verified",
+      "license": "GPL",
+      "manifest": "tools/hashcat-1.0.0.json"
+    }
+  ]
+}
