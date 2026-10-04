@@ -231,9 +231,26 @@ pub fn ai(args: &[String], json_out: bool) -> ZenResult<()> {
             }
             Ok(())
         }
+        Some("auto") => {
+            let goal = args.get(1..).unwrap_or(&[]).join(" ");
+            if goal.is_empty() {
+                return Err(
+                    ZenError::new(Area::Cfg, 5208, "usage: z ai auto <goal>")
+                );
+            }
+            
+            // Start the async autonomous agent inside a tokio runtime
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async {
+                if let Err(e) = agents::run_autonomous(&goal).await {
+                    eprintln!("Autonomous Error: {}", e);
+                }
+            });
+            Ok(())
+        }
         Some(other) => Err(
             ZenError::new(Area::Cfg, 5207, format!("unknown ai subcommand '{other}'"))
-                .with_remediation("Usage: z ai [analyze|privacy]"),
+                .with_remediation("Usage: z ai [analyze|privacy|auto]"),
         ),
     }
 }

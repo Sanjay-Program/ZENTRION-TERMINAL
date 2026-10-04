@@ -242,6 +242,9 @@ enum Commands {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
+
+    /// Launch the interactive Terminal UI (TUI)
+    Ui,
 }
 
 fn main() {
@@ -348,6 +351,16 @@ fn main() {
         Some(Commands::Sbom) => phase3_cmd::sbom(cli.json),
         Some(Commands::Ai { args }) => phase3_cmd::ai(&args, cli.json),
         Some(Commands::Cache { args }) => tools_cmd::cache_cmd(&args, cli.json),
+        Some(Commands::Ui) => {
+            // Start the async TUI inside a tokio runtime
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async {
+                if let Err(e) = tui::start_tui().await {
+                    eprintln!("TUI Error: {}", e);
+                }
+            });
+            Ok(())
+        },
     };
 
     match result {
