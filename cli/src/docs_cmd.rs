@@ -44,6 +44,10 @@ const COMMANDS: &[(&str, &str)] = &[
         "storage",
         "Inspect local storage paths, retention and health",
     ),
+    (
+        "profile",
+        "Show adaptable user profiles and workflow recommendations",
+    ),
     ("config", "Inspect or modify configuration"),
     ("init", "Initialize a new Zentrion project"),
     ("project", "Show or validate the current project"),
@@ -292,10 +296,12 @@ pub fn support(json: bool) -> ZenResult<()> {
 }
 
 pub fn commands(json: bool, args: &[String]) -> ZenResult<()> {
-    let filtered: Vec<_> = if args.first().map(|s| s.as_str()) == Some("search") {
+    let filtered: Vec<_> = if args.is_empty() {
+        Vec::new()
+    } else if args.first().map(|s| s.as_str()) == Some("search") {
         args.iter().skip(1).map(|s| s.to_lowercase()).collect()
     } else {
-        Vec::new()
+        args.iter().map(|s| s.to_lowercase()).collect()
     };
 
     let rows: Vec<_> = COMMANDS

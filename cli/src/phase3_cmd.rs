@@ -222,6 +222,52 @@ pub fn sbom(json_out: bool) -> ZenResult<()> {
 
 pub fn ai(args: &[String], json_out: bool) -> ZenResult<()> {
     match args.first().map(|s| s.as_str()) {
+        Some("status") => {
+            let provider =
+                std::env::var("ZENTRION_AI_PROVIDER").unwrap_or_else(|_| "ollama".to_string());
+            let model =
+                std::env::var("ZENTRION_AI_MODEL").unwrap_or_else(|_| "default".to_string());
+            let base_url = std::env::var("ZENTRION_AI_BASE_URL")
+                .or_else(|_| std::env::var("OPENAI_BASE_URL"))
+                .or_else(|_| std::env::var("OLLAMA_HOST"))
+                .ok();
+            let has_key = std::env::var("ZENTRION_AI_API_KEY").is_ok()
+                || std::env::var("OPENAI_API_KEY").is_ok()
+                || std::env::var("DASHSCOPE_API_KEY").is_ok();
+            let out = json!({
+                "provider": provider,
+                "model": model,
+                "base_url": base_url,
+                "api_key_configured": has_key,
+                "secrets_displayed": false,
+                "host_effects": "policy-and-broker-gated",
+            });
+            if json_out {
+                println!("{}", serde_json::to_string_pretty(&out)?);
+            } else {
+                println!("AI status");
+                println!(
+                    "  provider: {}",
+                    out["provider"].as_str().unwrap_or("unknown")
+                );
+                println!("  model:    {}", out["model"].as_str().unwrap_or("default"));
+                println!(
+                    "  base url: {}",
+                    out["base_url"].as_str().unwrap_or("provider default")
+                );
+                println!(
+                    "  api key:  {}",
+                    if has_key {
+                        "configured"
+                    } else {
+                        "not configured"
+                    }
+                );
+                println!("  secrets:  never displayed");
+                println!("  actions:  policy and broker gated");
+            }
+            Ok(())
+        }
         Some("analyze") | None => {
             let report = latest_report()?;
             let out = z_native::phase3::ai_summary(&report);
@@ -342,11 +388,11 @@ pub fn ai(args: &[String], json_out: bool) -> ZenResult<()> {
             });
             Ok(())
         }
-        Some(other) => {
-            Err(
-                ZenError::new(Area::Cfg, 5207, format!("unknown ai subcommand '{other}'"))
-                    .with_remediation("Usage: z ai [analyze|privacy|auto|security|inventory]"),
-            )
-        }
+        Some(other) => Err(ZenError::new(
+            Area::Cfg,
+            5207,
+            format!("unknown ai subcommand '{other}'"),
+        )
+        .with_remediation("Usage: z ai [status|analyze|privacy|auto|security|inventory]")),
     }
 }

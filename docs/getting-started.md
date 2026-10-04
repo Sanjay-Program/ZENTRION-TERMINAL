@@ -21,7 +21,9 @@ z status
 ```sh
 # 1. Check the machine
 z doctor
+z setup
 z status
+z profile list
 
 # 2. Create or enter a project
 z init my-project
@@ -43,6 +45,18 @@ z run nmap -- --version
 # 6. Open the dashboard
 z ui
 ```
+
+## Choose A Profile
+
+```sh
+z profile show developer
+z profile apply ai-developer
+z profile apply cybersecurity
+z profile apply everything
+```
+
+Profiles print role-specific commands and docs. They do not silently install
+tools, change policy or grant an AI agent extra permissions.
 
 ## AI Setup
 
@@ -77,6 +91,7 @@ export ZENTRION_AI_API_KEY=local
 |---|---|
 | Check health | `z doctor` |
 | See policy/runtime state | `z status` |
+| Pick a workflow | `z profile list` |
 | Find tools | `z search <term>` |
 | Browse bundles | `z bundle list` |
 | Preview a lab | `z bundle plan security-lab` |

@@ -381,6 +381,204 @@ pub fn storage(args: &[String], json: bool) -> ZenResult<()> {
     Ok(())
 }
 
+#[derive(Debug, Clone, Copy)]
+struct UserProfile {
+    name: &'static str,
+    title: &'static str,
+    description: &'static str,
+    commands: &'static [&'static str],
+    docs: &'static [&'static str],
+}
+
+const PROFILE_DEVELOPER_COMMANDS: &[&str] = &[
+    "z doctor",
+    "z init my-project",
+    "z project --check",
+    "z run cargo -- test",
+    "z scan --profile code ./src",
+];
+const PROFILE_AI_COMMANDS: &[&str] = &[
+    "z ai status",
+    "z ai privacy",
+    "z profile show ai-developer",
+    "z bundle plan devsecops",
+    "z ui",
+];
+const PROFILE_SECURITY_COMMANDS: &[&str] = &[
+    "z bundle plan kali-top10",
+    "z bundle plan web",
+    "z scan .",
+    "z finding list",
+    "z audit verify",
+];
+const PROFILE_DEVSECOPS_COMMANDS: &[&str] = &[
+    "z bundle plan devsecops",
+    "z scan --profile dependency .",
+    "z sbom",
+    "z audit tail",
+    "z report latest",
+];
+const PROFILE_CLOUD_COMMANDS: &[&str] = &[
+    "z scan --profile system .",
+    "z docs workflows",
+    "z bundle plan devsecops",
+    "z policy validate",
+    "z audit tail",
+];
+const PROFILE_STUDENT_COMMANDS: &[&str] = &[
+    "z setup",
+    "z doctor",
+    "z docs getting-started",
+    "z bundle list",
+    "z ui",
+];
+const PROFILE_EVERYTHING_COMMANDS: &[&str] = &[
+    "z setup",
+    "z storage show",
+    "z bundle plan security-lab",
+    "z profile list",
+    "z ui",
+];
+
+fn profiles() -> &'static [UserProfile] {
+    &[
+        UserProfile {
+            name: "developer",
+            title: "Developer",
+            description: "Build, test, run and inspect projects through the broker.",
+            commands: PROFILE_DEVELOPER_COMMANDS,
+            docs: &["getting-started", "projects", "tools", "security"],
+        },
+        UserProfile {
+            name: "ai-developer",
+            title: "AI Developer",
+            description: "Use local/API models, safe agents and provider-neutral AI setup.",
+            commands: PROFILE_AI_COMMANDS,
+            docs: &["ai", "agents", "workflows"],
+        },
+        UserProfile {
+            name: "cybersecurity",
+            title: "Cybersecurity",
+            description: "Authorized security assessment, evidence, findings and reporting.",
+            commands: PROFILE_SECURITY_COMMANDS,
+            docs: &["security", "tools", "agents"],
+        },
+        UserProfile {
+            name: "devsecops",
+            title: "DevSecOps",
+            description: "Secrets, SAST, dependency, SBOM and audit-oriented workflows.",
+            commands: PROFILE_DEVSECOPS_COMMANDS,
+            docs: &["tools", "security-model", "update-model"],
+        },
+        UserProfile {
+            name: "cloud",
+            title: "Cloud",
+            description: "Policy-first cloud, IaC and configuration review workflows.",
+            commands: PROFILE_CLOUD_COMMANDS,
+            docs: &["workflows", "policies", "plugins"],
+        },
+        UserProfile {
+            name: "student",
+            title: "Student",
+            description: "Guided safe defaults for learning terminal, AI and security basics.",
+            commands: PROFILE_STUDENT_COMMANDS,
+            docs: &["getting-started", "terminal", "cli"],
+        },
+        UserProfile {
+            name: "everything",
+            title: "Everything",
+            description: "Full Zentrion command-center mode with tools, AI, storage and UI.",
+            commands: PROFILE_EVERYTHING_COMMANDS,
+            docs: &["getting-started", "terminal", "storage", "tools"],
+        },
+    ]
+}
+
+pub fn profile(args: &[String], json: bool) -> ZenResult<()> {
+    let action = args.first().map(|s| s.as_str()).unwrap_or("list");
+    match action {
+        "list" => {
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "profiles": profiles().iter().map(|p| json!({
+                            "name": p.name,
+                            "title": p.title,
+                            "description": p.description,
+                            "commands": p.commands,
+                            "docs": p.docs,
+                        })).collect::<Vec<_>>()
+                    }))?
+                );
+                return Ok(());
+            }
+            println!("{:<16} {:<18} DESCRIPTION", "PROFILE", "TITLE");
+            for p in profiles() {
+                println!("{:<16} {:<18} {}", p.name, p.title, p.description);
+            }
+            println!("\nInspect with: z profile show <name>");
+            println!("Start safely with: z profile apply <name>");
+            Ok(())
+        }
+        "show" | "apply" => {
+            let Some(name) = args.get(1) else {
+                return Err(ZenError::new(
+                    Area::Cfg,
+                    44,
+                    "usage: z profile show <name> or z profile apply <name>",
+                ));
+            };
+            let p = profiles().iter().find(|p| p.name == name).ok_or_else(|| {
+                ZenError::new(Area::Cfg, 45, format!("unknown profile: {name}"))
+                    .with_remediation("Run `z profile list` to see available profiles.")
+            })?;
+
+            if action == "apply" {
+                let _ = z_core::config::ensure_storage_layout()?;
+            }
+
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "name": p.name,
+                        "title": p.title,
+                        "description": p.description,
+                        "commands": p.commands,
+                        "docs": p.docs,
+                        "storage_initialized": action == "apply",
+                    }))?
+                );
+                return Ok(());
+            }
+
+            println!("{} ({})", p.title, p.name);
+            println!("  {}", p.description);
+            println!();
+            if action == "apply" {
+                println!("Storage initialized. Recommended first commands:");
+            } else {
+                println!("Recommended commands:");
+            }
+            for cmd in p.commands {
+                println!("  {cmd}");
+            }
+            println!();
+            println!("Docs:");
+            for doc in p.docs {
+                println!("  z docs {doc}");
+            }
+            Ok(())
+        }
+        _ => Err(ZenError::new(
+            Area::Cfg,
+            46,
+            "usage: z profile [list|show <name>|apply <name>]",
+        )),
+    }
+}
+
 /// `z config` — get/set safe configuration (never secrets).
 pub fn config(args: &[String], json: bool) -> ZenResult<()> {
     match args.first().map(|s| s.as_str()) {

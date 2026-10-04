@@ -12,6 +12,9 @@ shell; Zentrion commands are additive.
 - `z doctor`
 - `z version`
 - `z status`
+- `z setup`
+- `z storage show`
+- `z profile list`
 - `z bundle list`
 - `z bundle plan web`
 - `z search scanner`
@@ -29,13 +32,29 @@ Views:
 
 | View | Shows |
 |---|---|
-| Ops | Runtime posture, broker status, policy and audit signals |
+| Home | Runtime posture, broker status, policy and audit signals |
+| Workflows | Developer, AI, security, DevSecOps, cloud, student and everything profiles |
 | Tools | Curated Kali-style, web, recon, DevSecOps and lab bundles |
 | Agents | Profiles, handoffs, tool allowlists and guardrails |
+| AI | Local/API provider setup including Ollama, Qwen, OpenAI and compatible endpoints |
+| Security | Policy, scan, findings, reports and audit commands |
+| Storage | Durable data paths and retention policy |
 | Docs | The documentation pages that explain each subsystem |
 
 Keyboard:
 
 - `Tab` switches views.
-- `1` through `4` jump to a view.
+- `1` through `8` jump to a view.
+- `/` opens the workflow command map.
 - `q` exits.
+
+## Adaptable Profiles
+
+```sh
+z profile list
+z profile show developer
+z profile apply everything
+```
+
+Profiles are recommendations, not privilege grants. They help normal users get
+to useful commands faster while the runtime still enforces policy and audit.

@@ -308,6 +308,11 @@ z setup
 z storage show
 z storage policy
 
+# Choose an adaptable workflow profile
+z profile list
+z profile apply developer
+z profile apply ai-developer
+
 # Show native platform capabilities
 z platform
 
@@ -458,6 +463,9 @@ permissions.
 | `z storage init` | Create missing durable storage directories |
 | `z storage doctor` | Check storage path existence and writability |
 | `z storage policy` | Explain what survives upgrade/uninstall |
+| `z profile list` | Show adaptable user profiles |
+| `z profile show <name>` | Show recommended commands and docs for a profile |
+| `z profile apply <name>` | Initialize storage and print first commands for a profile |
 | `z platform` | Report native platform capabilities and sandbox levels |
 | `z sbom` | Emit a runtime SBOM-like JSON summary |
 

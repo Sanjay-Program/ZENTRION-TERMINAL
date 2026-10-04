@@ -57,6 +57,12 @@ enum Commands {
         args: Vec<String>,
     },
 
+    /// Show adaptable user profiles and recommended workflows
+    Profile {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+
     /// Inspect or modify configuration (never secrets)
     Config {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
@@ -307,6 +313,7 @@ fn main() {
         Some(Commands::Status) => commands::status(cli.json, cli.project.clone()),
         Some(Commands::Setup) => commands::setup(cli.json),
         Some(Commands::Storage { args }) => commands::storage(&args, cli.json),
+        Some(Commands::Profile { args }) => commands::profile(&args, cli.json),
         Some(Commands::Config { args }) => commands::config(&args, cli.json),
         Some(Commands::Init { path, name }) => commands::init(path, name, cli.json),
         Some(Commands::Project { check, args }) => {
@@ -655,6 +662,7 @@ fn print_banner() {
     println!("  z doctor            check host and configuration health");
     println!("  z setup             initialize durable local storage");
     println!("  z storage show      show storage paths and retention");
+    println!("  z profile list      show adaptable workflow profiles");
     println!("  z init <dir>        create a new project");
     println!("  z status            runtime and project status");
     println!("  z project --check   validate the current project");

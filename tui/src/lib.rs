@@ -22,7 +22,16 @@ pub async fn start_tui() -> Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
     let mut tab = 0usize;
-    let tabs = ["Ops", "Tools", "Agents", "Docs"];
+    let tabs = [
+        "Home",
+        "Workflows",
+        "Tools",
+        "Agents",
+        "AI",
+        "Security",
+        "Storage",
+        "Docs",
+    ];
 
     loop {
         terminal.draw(|f| {
@@ -101,7 +110,14 @@ pub async fn start_tui() -> Result<()> {
                         .fg(Color::Yellow)
                         .add_modifier(Modifier::BOLD),
                 ),
-                Span::raw(" switch"),
+                Span::raw(" switch  "),
+                Span::styled(
+                    "/",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::raw(" command map"),
             ]))
             .block(Block::default().borders(Borders::ALL));
             f.render_widget(footer, chunks[2]);
@@ -117,6 +133,11 @@ pub async fn start_tui() -> Result<()> {
                     KeyCode::Char('2') => tab = 1,
                     KeyCode::Char('3') => tab = 2,
                     KeyCode::Char('4') => tab = 3,
+                    KeyCode::Char('5') => tab = 4,
+                    KeyCode::Char('6') => tab = 5,
+                    KeyCode::Char('7') => tab = 6,
+                    KeyCode::Char('8') => tab = 7,
+                    KeyCode::Char('/') => tab = 1,
                     _ => {}
                 }
             }
@@ -130,10 +151,19 @@ pub async fn start_tui() -> Result<()> {
 }
 
 fn render_nav(f: &mut ratatui::Frame, area: Rect, tab: usize) {
-    let titles = ["Ops", "Tools", "Agents", "Docs"]
-        .iter()
-        .map(|t| Line::from(Span::raw(*t)))
-        .collect::<Vec<_>>();
+    let titles = [
+        "Home",
+        "Workflows",
+        "Tools",
+        "Agents",
+        "AI",
+        "Security",
+        "Storage",
+        "Docs",
+    ]
+    .iter()
+    .map(|t| Line::from(Span::raw(*t)))
+    .collect::<Vec<_>>();
     let nav_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(3), Constraint::Min(0)].as_ref())
@@ -150,12 +180,14 @@ fn render_nav(f: &mut ratatui::Frame, area: Rect, tab: usize) {
     f.render_widget(tabs, nav_chunks[0]);
 
     let items = [
-        ListItem::new("doctor: offline host check"),
-        ListItem::new("status: project + policy"),
-        ListItem::new("bundle: curated tool packs"),
-        ListItem::new("scan: native assessment"),
-        ListItem::new("ai: analysis foundation"),
-        ListItem::new("audit: immutable event chain"),
+        ListItem::new("1 Home: health + next steps"),
+        ListItem::new("2 Workflows: daily roles"),
+        ListItem::new("3 Tools: bundles + registry"),
+        ListItem::new("4 Agents: safe automation"),
+        ListItem::new("5 AI: local/API models"),
+        ListItem::new("6 Security: scans + audit"),
+        ListItem::new("7 Storage: durable data"),
+        ListItem::new("8 Docs: learning map"),
     ];
     let list = List::new(items)
         .block(Block::default().borders(Borders::ALL).title("Workflow"))
@@ -165,9 +197,13 @@ fn render_nav(f: &mut ratatui::Frame, area: Rect, tab: usize) {
 
 fn render_main(f: &mut ratatui::Frame, area: Rect, tab: usize) {
     match tab {
-        0 => render_ops(f, area),
-        1 => render_tools(f, area),
-        2 => render_agents(f, area),
+        0 => render_home(f, area),
+        1 => render_workflows(f, area),
+        2 => render_tools(f, area),
+        3 => render_agents(f, area),
+        4 => render_ai(f, area),
+        5 => render_security(f, area),
+        6 => render_storage(f, area),
         _ => render_docs(f, area),
     }
 }
@@ -204,8 +240,10 @@ fn render_status(f: &mut ratatui::Frame, area: Rect) {
 
     let commands = List::new([
         ListItem::new("z bundle list"),
+        ListItem::new("z profile list"),
         ListItem::new("z bundle plan recon"),
         ListItem::new("z search devsecops"),
+        ListItem::new("z storage show"),
         ListItem::new("z doctor"),
         ListItem::new("z status"),
     ])
@@ -217,7 +255,7 @@ fn render_status(f: &mut ratatui::Frame, area: Rect) {
     f.render_widget(commands, chunks[2]);
 }
 
-fn render_ops(f: &mut ratatui::Frame, area: Rect) {
+fn render_home(f: &mut ratatui::Frame, area: Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints(
@@ -232,7 +270,7 @@ fn render_ops(f: &mut ratatui::Frame, area: Rect) {
     let health = Paragraph::new(vec![
         Line::from("Runtime: local-only    Broker: enabled    Network: explicit"),
         Line::from("Policy: active         Secrets: hidden     Audit: chain verified"),
-        Line::from("Suggested next: z doctor, z status, z bundle list"),
+        Line::from("Suggested next: z setup, z profile list, z bundle list"),
     ])
     .block(Block::default().borders(Borders::ALL).title("Operations"));
     f.render_widget(health, chunks[0]);
@@ -252,6 +290,7 @@ fn render_ops(f: &mut ratatui::Frame, area: Rect) {
         ListItem::new("raw program execution routes through identity, policy and broker"),
         ListItem::new("doctor remains offline by design"),
         ListItem::new("bundle plans print reviewable install commands"),
+        ListItem::new("storage survives upgrade and normal uninstall"),
     ])
     .block(
         Block::default()
@@ -259,6 +298,29 @@ fn render_ops(f: &mut ratatui::Frame, area: Rect) {
             .title("Recent Signals"),
     );
     f.render_widget(activity, chunks[2]);
+}
+
+fn render_workflows(f: &mut ratatui::Frame, area: Rect) {
+    let columns = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
+        .split(area);
+    let personas = List::new([
+        ListItem::new("developer: git, build, test, run"),
+        ListItem::new("ai-developer: local/API models + agents"),
+        ListItem::new("cybersecurity: scope, scan, evidence"),
+        ListItem::new("devsecops: SAST, secrets, SBOM"),
+        ListItem::new("cloud: IaC and config review"),
+        ListItem::new("student: guided safe commands"),
+        ListItem::new("everything: full command-center mode"),
+    ])
+    .block(Block::default().borders(Borders::ALL).title("Profiles"));
+    f.render_widget(personas, columns[0]);
+
+    let commands = Paragraph::new("Start:\n  z profile list\n  z profile show developer\n  z profile apply ai-developer\n\nDaily:\n  z commands <query>\n  z docs <topic>\n  z project --check\n  z scan .\n\nReusable workflow idea:\n  z bundle plan devsecops\n  z ai privacy\n  z audit tail")
+        .wrap(Wrap { trim: true })
+        .block(Block::default().borders(Borders::ALL).title("Command Palette"));
+    f.render_widget(commands, columns[1]);
 }
 
 fn render_tools(f: &mut ratatui::Frame, area: Rect) {
@@ -308,8 +370,69 @@ fn render_agents(f: &mut ratatui::Frame, area: Rect) {
     f.render_widget(guardrails, rows[1]);
 }
 
+fn render_ai(f: &mut ratatui::Frame, area: Rect) {
+    let columns = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
+        .split(area);
+    let providers = List::new([
+        ListItem::new("ollama: local-first default"),
+        ListItem::new("qwen: DashScope-compatible API"),
+        ListItem::new("openai: OpenAI API"),
+        ListItem::new("openai-compatible: LM Studio, llama.cpp, routers"),
+    ])
+    .block(Block::default().borders(Borders::ALL).title("Providers"));
+    f.render_widget(providers, columns[0]);
+
+    let setup = Paragraph::new("Local Qwen:\n  ollama pull qwen2.5-coder:7b\n  ZENTRION_AI_PROVIDER=ollama\n  ZENTRION_AI_MODEL=qwen2.5-coder:7b\n\nAPI Qwen:\n  ZENTRION_AI_PROVIDER=qwen\n  DASHSCOPE_API_KEY=...\n\nCustom endpoint:\n  ZENTRION_AI_PROVIDER=openai-compatible\n  ZENTRION_AI_BASE_URL=http://127.0.0.1:8080/v1")
+        .wrap(Wrap { trim: true })
+        .block(Block::default().borders(Borders::ALL).title("Setup"));
+    f.render_widget(setup, columns[1]);
+}
+
+fn render_security(f: &mut ratatui::Frame, area: Rect) {
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(8), Constraint::Min(8)].as_ref())
+        .split(area);
+    let posture = Paragraph::new(vec![
+        Line::from("Identity -> policy -> capability -> approval -> broker -> audit"),
+        Line::from("Tool installs: checksum, trust gate, transactional store"),
+        Line::from("AI actions: guardrails and allowlists before host effects"),
+        Line::from("Storage: persistent audit and evidence by default"),
+    ])
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title("Security Model"),
+    );
+    f.render_widget(posture, rows[0]);
+
+    let commands = List::new([
+        ListItem::new("z policy validate"),
+        ListItem::new("z scan ."),
+        ListItem::new("z finding list"),
+        ListItem::new("z report latest"),
+        ListItem::new("z audit verify"),
+        ListItem::new("z ai privacy"),
+    ])
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title("Security Commands"),
+    );
+    f.render_widget(commands, rows[1]);
+}
+
+fn render_storage(f: &mut ratatui::Frame, area: Rect) {
+    let text = Paragraph::new("Durable by default:\n  config\n  audit\n  installed tools\n  sessions/history\n  agent and project memory\n  scan reports\n\nCommands:\n  z setup\n  z storage show\n  z storage doctor\n  z storage policy\n\nRetention:\n  survives upgrades\n  survives binary deletion\n  normal uninstall preserves user data\n  cache is disposable")
+        .wrap(Wrap { trim: true })
+        .block(Block::default().borders(Borders::ALL).title("Local Storage"));
+    f.render_widget(text, area);
+}
+
 fn render_docs(f: &mut ratatui::Frame, area: Rect) {
-    let docs = Paragraph::new("docs/tools/README.md\n  Tool lifecycle, bundles and registry commands\n\ndocs/agents.md\n  Agent profiles, handoffs, guardrails and traces\n\ndocs/terminal.md\n  Shell-first platform and TUI overview\n\ndocs/SECURITY_MODEL.md\n  Broker, policy, audit and local-first guarantees")
+    let docs = Paragraph::new("docs/getting-started.md\n  First 10 minutes\n\ndocs/terminal.md\n  Shell-first platform and TUI overview\n\ndocs/workflows.md\n  Persona profiles and workflow commands\n\ndocs/tools/README.md\n  Tool lifecycle, bundles and registry commands\n\ndocs/agents.md\n  Agent profiles, handoffs, guardrails and traces\n\ndocs/STORAGE.md\n  Durable local storage\n\ndocs/SECURITY_MODEL.md\n  Broker, policy, audit and local-first guarantees")
         .wrap(Wrap { trim: true })
         .block(Block::default().borders(Borders::ALL).title("Documentation Map"));
     f.render_widget(docs, area);
