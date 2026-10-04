@@ -5,8 +5,8 @@
 //! no telemetry, no account required, works fully offline.
 
 mod commands;
-mod docs_cmd;
 mod context;
+mod docs_cmd;
 mod native_engines;
 mod phase3_cmd;
 mod tools_cmd;
@@ -47,6 +47,15 @@ enum Commands {
 
     /// Show runtime, project, policy and audit status
     Status,
+
+    /// Create and inspect durable local storage used across upgrades
+    Setup,
+
+    /// Inspect local storage paths, retention and health
+    Storage {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
 
     /// Inspect or modify configuration (never secrets)
     Config {
@@ -125,6 +134,12 @@ enum Commands {
         /// Emit machine-readable JSON
         #[arg(long)]
         json: bool,
+    },
+
+    /// Explore curated Kali-style and developer tool bundles
+    Bundle {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
     },
 
     /// Show details for a tool
@@ -290,6 +305,8 @@ fn main() {
         Some(Commands::Version) => commands::version(cli.json),
         Some(Commands::Doctor) => commands::doctor(cli.json, cli.project.clone()),
         Some(Commands::Status) => commands::status(cli.json, cli.project.clone()),
+        Some(Commands::Setup) => commands::setup(cli.json),
+        Some(Commands::Storage { args }) => commands::storage(&args, cli.json),
         Some(Commands::Config { args }) => commands::config(&args, cli.json),
         Some(Commands::Init { path, name }) => commands::init(path, name, cli.json),
         Some(Commands::Project { check, args }) => {
@@ -327,6 +344,9 @@ fn main() {
             category,
             json,
         }) => tools_cmd::search(&query, category, cli.json || json, cli.project.clone()),
+        Some(Commands::Bundle { args }) => {
+            tools_cmd::bundle_cmd(&args, cli.json, cli.project.clone())
+        }
         Some(Commands::Info { tool, version }) => {
             tools_cmd::info(&tool, version, cli.json, cli.project.clone())
         }
@@ -393,13 +413,25 @@ fn main() {
                             println!("Successfully connected to MCP Server.");
                             Ok(())
                         }
-                        Err(e) => Err(z_core::error::ZenError::new(z_core::error::Area::Cfg, 104, format!("mcp connect failed: {}", e))),
+                        Err(e) => Err(z_core::error::ZenError::new(
+                            z_core::error::Area::Cfg,
+                            104,
+                            format!("mcp connect failed: {}", e),
+                        )),
                     }
                 } else {
-                    Err(z_core::error::ZenError::new(z_core::error::Area::Cfg, 101, "usage: z mcp connect <command>"))
+                    Err(z_core::error::ZenError::new(
+                        z_core::error::Area::Cfg,
+                        101,
+                        "usage: z mcp connect <command>",
+                    ))
                 }
             } else {
-                Err(z_core::error::ZenError::new(z_core::error::Area::Cfg, 101, "usage: z mcp connect <command>"))
+                Err(z_core::error::ZenError::new(
+                    z_core::error::Area::Cfg,
+                    101,
+                    "usage: z mcp connect <command>",
+                ))
             }
         }
         Some(Commands::Plugin { args }) => {
@@ -412,13 +444,25 @@ fn main() {
                             println!("Successfully loaded plugin from {}", path);
                             Ok(())
                         }
-                        Err(e) => Err(z_core::error::ZenError::new(z_core::error::Area::Cfg, 102, format!("plugin load failed: {}", e))),
+                        Err(e) => Err(z_core::error::ZenError::new(
+                            z_core::error::Area::Cfg,
+                            102,
+                            format!("plugin load failed: {}", e),
+                        )),
                     }
                 } else {
-                    Err(z_core::error::ZenError::new(z_core::error::Area::Cfg, 103, "usage: z plugin load <path>"))
+                    Err(z_core::error::ZenError::new(
+                        z_core::error::Area::Cfg,
+                        103,
+                        "usage: z plugin load <path>",
+                    ))
                 }
             } else {
-                Err(z_core::error::ZenError::new(z_core::error::Area::Cfg, 103, "usage: z plugin load <path>"))
+                Err(z_core::error::ZenError::new(
+                    z_core::error::Area::Cfg,
+                    103,
+                    "usage: z plugin load <path>",
+                ))
             }
         }
         Some(Commands::Enterprise { args }) => {
@@ -430,39 +474,71 @@ fn main() {
                             match enterprise::sso::login(team) {
                                 Ok(token) => {
                                     let display_len = std::cmp::min(10, token.len());
-                                    println!("SSO Login Successful! Token: {}...", &token[0..display_len]);
+                                    println!(
+                                        "SSO Login Successful! Token: {}...",
+                                        &token[0..display_len]
+                                    );
                                     Ok(())
                                 }
-                                Err(e) => Err(z_core::error::ZenError::new(z_core::error::Area::Cfg, 105, format!("login failed: {}", e))),
+                                Err(e) => Err(z_core::error::ZenError::new(
+                                    z_core::error::Area::Cfg,
+                                    105,
+                                    format!("login failed: {}", e),
+                                )),
                             }
                         } else {
-                            Err(z_core::error::ZenError::new(z_core::error::Area::Cfg, 106, "usage: z enterprise login <team>"))
+                            Err(z_core::error::ZenError::new(
+                                z_core::error::Area::Cfg,
+                                106,
+                                "usage: z enterprise login <team>",
+                            ))
                         }
                     }
                     "sync" => {
                         println!("Syncing enterprise fleet policies...");
                         match enterprise::sync::sync_policy("mock-token") {
                             Ok(policy) => {
-                                println!("Successfully downloaded fleet policy:\n{}", serde_json::to_string_pretty(&policy).unwrap_or_default());
+                                println!(
+                                    "Successfully downloaded fleet policy:\n{}",
+                                    serde_json::to_string_pretty(&policy).unwrap_or_default()
+                                );
                                 Ok(())
                             }
-                            Err(e) => Err(z_core::error::ZenError::new(z_core::error::Area::Cfg, 107, format!("sync failed: {}", e))),
+                            Err(e) => Err(z_core::error::ZenError::new(
+                                z_core::error::Area::Cfg,
+                                107,
+                                format!("sync failed: {}", e),
+                            )),
                         }
                     }
                     "fleet-status" => {
                         println!("Forwarding local telemetry and audit logs to SIEM...");
                         match enterprise::telemetry::forward_audit_logs("mock-token") {
                             Ok(_) => {
-                                println!("Fleet status and SIEM telemetry synchronized successfully.");
+                                println!(
+                                    "Fleet status and SIEM telemetry synchronized successfully."
+                                );
                                 Ok(())
                             }
-                            Err(e) => Err(z_core::error::ZenError::new(z_core::error::Area::Cfg, 108, format!("telemetry failed: {}", e))),
+                            Err(e) => Err(z_core::error::ZenError::new(
+                                z_core::error::Area::Cfg,
+                                108,
+                                format!("telemetry failed: {}", e),
+                            )),
                         }
                     }
-                    _ => Err(z_core::error::ZenError::new(z_core::error::Area::Cfg, 109, "unknown enterprise subcommand")),
+                    _ => Err(z_core::error::ZenError::new(
+                        z_core::error::Area::Cfg,
+                        109,
+                        "unknown enterprise subcommand",
+                    )),
                 }
             } else {
-                Err(z_core::error::ZenError::new(z_core::error::Area::Cfg, 110, "usage: z enterprise <login|sync|fleet-status>"))
+                Err(z_core::error::ZenError::new(
+                    z_core::error::Area::Cfg,
+                    110,
+                    "usage: z enterprise <login|sync|fleet-status>",
+                ))
             }
         }
         Some(Commands::Upgrade { args }) => {
@@ -479,7 +555,11 @@ fn main() {
                                 println!("ZENTRION is up to date.");
                                 Ok(())
                             }
-                            Err(e) => Err(z_core::error::ZenError::new(z_core::error::Area::Cfg, 111, format!("upgrade check failed: {}", e))),
+                            Err(e) => Err(z_core::error::ZenError::new(
+                                z_core::error::Area::Cfg,
+                                111,
+                                format!("upgrade check failed: {}", e),
+                            )),
                         }
                     }
                     "apply" => {
@@ -489,7 +569,11 @@ fn main() {
                                 println!("Successfully activated version: {}", version);
                                 Ok(())
                             }
-                            Err(e) => Err(z_core::error::ZenError::new(z_core::error::Area::Cfg, 112, format!("upgrade apply failed: {}", e))),
+                            Err(e) => Err(z_core::error::ZenError::new(
+                                z_core::error::Area::Cfg,
+                                112,
+                                format!("upgrade apply failed: {}", e),
+                            )),
                         }
                     }
                     "rollback" => {
@@ -499,13 +583,25 @@ fn main() {
                                 println!("Successfully restored previous version: {}", version);
                                 Ok(())
                             }
-                            Err(e) => Err(z_core::error::ZenError::new(z_core::error::Area::Cfg, 113, format!("upgrade rollback failed: {}", e))),
+                            Err(e) => Err(z_core::error::ZenError::new(
+                                z_core::error::Area::Cfg,
+                                113,
+                                format!("upgrade rollback failed: {}", e),
+                            )),
                         }
                     }
-                    _ => Err(z_core::error::ZenError::new(z_core::error::Area::Cfg, 114, "unknown upgrade subcommand")),
+                    _ => Err(z_core::error::ZenError::new(
+                        z_core::error::Area::Cfg,
+                        114,
+                        "unknown upgrade subcommand",
+                    )),
                 }
             } else {
-                Err(z_core::error::ZenError::new(z_core::error::Area::Cfg, 115, "usage: z upgrade <check|apply|rollback>"))
+                Err(z_core::error::ZenError::new(
+                    z_core::error::Area::Cfg,
+                    115,
+                    "usage: z upgrade <check|apply|rollback>",
+                ))
             }
         }
         Some(Commands::Daemon { args }) => {
@@ -513,13 +609,21 @@ fn main() {
                 println!("Starting ZENTRION IPC Daemon on port 9099...");
                 let rt = tokio::runtime::Runtime::new().unwrap();
                 if let Err(e) = rt.block_on(daemon::server::start_daemon(9099)) {
-                    Err(z_core::error::ZenError::new(z_core::error::Area::Cfg, 116, format!("daemon failed: {}", e)))
+                    Err(z_core::error::ZenError::new(
+                        z_core::error::Area::Cfg,
+                        116,
+                        format!("daemon failed: {}", e),
+                    ))
                 } else {
                     println!("Daemon shutdown successfully.");
                     Ok(())
                 }
             } else {
-                Err(z_core::error::ZenError::new(z_core::error::Area::Cfg, 117, "usage: z daemon start"))
+                Err(z_core::error::ZenError::new(
+                    z_core::error::Area::Cfg,
+                    117,
+                    "usage: z daemon start",
+                ))
             }
         }
         Some(Commands::Ui) => {
@@ -531,7 +635,7 @@ fn main() {
                 }
             });
             Ok(())
-        },
+        }
     };
 
     match result {
@@ -549,12 +653,15 @@ fn print_banner() {
     println!();
     println!("Common commands:");
     println!("  z doctor            check host and configuration health");
+    println!("  z setup             initialize durable local storage");
+    println!("  z storage show      show storage paths and retention");
     println!("  z init <dir>        create a new project");
     println!("  z status            runtime and project status");
     println!("  z project --check   validate the current project");
     println!("  z policy validate   validate the effective policy");
     println!("  z run <cmd> [args]  run a permitted program through the broker");
     println!("  z search <term>     search the tool registry");
+    println!("  z bundle list       show curated tool bundles");
     println!("  z install <tool>    install a tool (verified)");
     println!("  z list              list installed tools");
     println!("  z platform          report native platform capabilities");

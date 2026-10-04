@@ -28,7 +28,7 @@ while [ $# -gt 0 ]; do
 done
 
 BIN_DIR="${PREFIX}/bin"
-DATA_DIR="${PREFIX}/share/zentrion"
+APP_DATA_DIR="${PREFIX}/share/zentrion"
 
 # Locate the binary: from an archive, or from a local release build.
 TMP=""
@@ -70,19 +70,20 @@ fi
 
 [ -n "$SRC" ] || { echo "could not locate binary in archive" >&2; exit 1; }
 
-mkdir -p "$BIN_DIR" "$DATA_DIR"
+mkdir -p "$BIN_DIR" "$APP_DATA_DIR"
 cp "$SRC" "$BIN_DIR/z"
 chmod 755 "$BIN_DIR/z"
-[ -n "$DOC_SRC" ] && [ -d "$DOC_SRC" ] && rm -rf "$DATA_DIR/docs"
-[ -n "$DOC_SRC" ] && [ -d "$DOC_SRC" ] && cp -R "$DOC_SRC" "$DATA_DIR/"
-[ -n "$ROOT_SRC" ] && [ -f "$ROOT_SRC/README.md" ] && cp "$ROOT_SRC/README.md" "$DATA_DIR/README.md"
-[ -n "$ROOT_SRC" ] && [ -f "$ROOT_SRC/SECURITY.md" ] && cp "$ROOT_SRC/SECURITY.md" "$DATA_DIR/SECURITY.md"
-[ -n "$ROOT_SRC" ] && [ -f "$ROOT_SRC/CHANGELOG.md" ] && cp "$ROOT_SRC/CHANGELOG.md" "$DATA_DIR/CHANGELOG.md"
-[ -n "$ROOT_SRC" ] && [ -f "$ROOT_SRC/FAQ.md" ] && cp "$ROOT_SRC/FAQ.md" "$DATA_DIR/FAQ.md"
+[ -n "$DOC_SRC" ] && [ -d "$DOC_SRC" ] && rm -rf "$APP_DATA_DIR/docs"
+[ -n "$DOC_SRC" ] && [ -d "$DOC_SRC" ] && cp -R "$DOC_SRC" "$APP_DATA_DIR/"
+[ -n "$ROOT_SRC" ] && [ -f "$ROOT_SRC/README.md" ] && cp "$ROOT_SRC/README.md" "$APP_DATA_DIR/README.md"
+[ -n "$ROOT_SRC" ] && [ -f "$ROOT_SRC/SECURITY.md" ] && cp "$ROOT_SRC/SECURITY.md" "$APP_DATA_DIR/SECURITY.md"
+[ -n "$ROOT_SRC" ] && [ -f "$ROOT_SRC/CHANGELOG.md" ] && cp "$ROOT_SRC/CHANGELOG.md" "$APP_DATA_DIR/CHANGELOG.md"
+[ -n "$ROOT_SRC" ] && [ -f "$ROOT_SRC/FAQ.md" ] && cp "$ROOT_SRC/FAQ.md" "$APP_DATA_DIR/FAQ.md"
 [ -n "$TMP" ] && rm -rf "$TMP"
 
 echo "Installed: $BIN_DIR/z"
-echo "Data dir:  $DATA_DIR"
+echo "App files: $APP_DATA_DIR"
+echo "User data: preserved under the platform data directory (run: z storage show)"
 echo
 
 case ":${PATH}:" in

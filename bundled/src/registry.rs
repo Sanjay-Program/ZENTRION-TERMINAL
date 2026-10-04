@@ -1,7 +1,7 @@
-use std::collections::HashMap;
-use std::sync::Arc;
 use anyhow::Result;
 use async_trait::async_trait;
+use std::collections::HashMap;
+use std::sync::Arc;
 
 #[async_trait]
 pub trait BundledTool: Send + Sync {
@@ -16,7 +16,10 @@ impl BundledRegistry {
     pub fn new() -> Self {
         let mut tools: HashMap<String, Arc<dyn BundledTool>> = HashMap::new();
         tools.insert("z-curl".to_string(), Arc::new(crate::curl::CurlTool));
-        tools.insert("z-sysinfo".to_string(), Arc::new(crate::sysinfo::SysinfoTool));
+        tools.insert(
+            "z-sysinfo".to_string(),
+            Arc::new(crate::sysinfo::SysinfoTool),
+        );
         tools.insert("z-ping".to_string(), Arc::new(crate::ping::PingTool));
         Self { tools }
     }

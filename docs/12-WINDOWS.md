@@ -48,6 +48,6 @@ upon for core; native ARM64 build provided).
 
 ## Install / uninstall / update / rollback
 - Install: per-user MSI (no admin) or winget/manifest; adds binary dir to user PATH.
-- Uninstall: removes binaries, data dir (with confirmation), revokes firewall rules, unregisters shell module.
+- Uninstall: removes binaries, installer-managed integrations and shell module registration. User config, audit logs, tools, sessions, memory and reports are preserved; see [STORAGE.md](STORAGE.md).
 - Update: signed MSI staged to `%LOCALAPPDATA%\Zentrion\update\`, verified (Authenticode + our minisign), applied on next start; rollback keeps previous version in `versions\` for instant revert.
 - Code signing is a release requirement; unsigned builds refuse auto-update.

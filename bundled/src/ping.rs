@@ -1,7 +1,7 @@
 use crate::registry::BundledTool;
 use anyhow::{anyhow, Result};
-use tokio::net::TcpStream;
 use async_trait::async_trait;
+use tokio::net::TcpStream;
 
 pub struct PingTool;
 
@@ -17,9 +17,7 @@ impl BundledTool for PingTool {
                 println!("Successfully connected to {}", addr);
                 Ok(())
             }
-            Err(e) => {
-                Err(anyhow!("Failed to connect to {}: {}", addr, e))
-            }
+            Err(e) => Err(anyhow!("Failed to connect to {}: {}", addr, e)),
         }
     }
 }

@@ -1,5 +1,7 @@
 #!/usr/bin/env sh
 # Remove the Zentrion binary and bundled docs. Usage: scripts/uninstall.sh [--prefix DIR] [--purge]
+# Persistent user data is intentionally preserved. Use `z storage show` before
+# uninstalling if you want to inspect config/data/cache locations.
 set -eu
 PREFIX="${HOME}/.local"
 PURGE=0
@@ -23,7 +25,10 @@ if [ -d "$SHARE" ]; then
     echo "Removed $SHARE"
 fi
 if [ "$PURGE" = "1" ]; then
-    echo "Note: --purge removes application files only; user data (config, audit log)"
-    echo "is left in place deliberately. Remove it manually if desired:"
-    echo "  ~/.config/zentrion  ~/.local/share/zentrion"
+    echo "Note: --purge removes application files only."
 fi
+echo "Persistent user data was preserved deliberately."
+echo "Typical user data paths:"
+echo "  Linux:  ~/.config/zentrion  ~/.local/share/zentrion  ~/.cache/zentrion"
+echo "  macOS:  ~/Library/Application Support/Zentrion  ~/Library/Caches/Zentrion"
+echo "  Windows: %APPDATA%\\Zentrion  %LOCALAPPDATA%\\Zentrion"

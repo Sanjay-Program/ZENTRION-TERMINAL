@@ -160,11 +160,7 @@ impl EngineRegistry {
             )
             .with_remediation(format!(
                 "Available engines: {}",
-                self.engines
-                    .keys()
-                    .cloned()
-                    .collect::<Vec<_>>()
-                    .join(", ")
+                self.engines.keys().cloned().collect::<Vec<_>>().join(", ")
             ))
         })?;
         engine.execute(request)
@@ -382,8 +378,14 @@ fn summarize_findings(findings: &[Finding]) -> String {
         .iter()
         .filter(|f| matches!(f.severity, Severity::High | Severity::Critical))
         .count();
-    let medium = findings.iter().filter(|f| matches!(f.severity, Severity::Medium)).count();
-    let low = findings.iter().filter(|f| matches!(f.severity, Severity::Low)).count();
+    let medium = findings
+        .iter()
+        .filter(|f| matches!(f.severity, Severity::Medium))
+        .count();
+    let low = findings
+        .iter()
+        .filter(|f| matches!(f.severity, Severity::Low))
+        .count();
     format!("{high} high/critical, {medium} medium, {low} low finding(s)")
 }
 
@@ -429,9 +431,8 @@ impl Engine for DnsEngine {
 
     fn execute(&self, request: &EngineRequest) -> ZenResult<EngineResult> {
         let started = now_millis();
-        let target = as_string(request.input.get("target")).ok_or_else(|| {
-            json_error(self.name(), &request.operation, "missing target")
-        })?;
+        let target = as_string(request.input.get("target"))
+            .ok_or_else(|| json_error(self.name(), &request.operation, "missing target"))?;
         match request.operation.as_str() {
             "resolve" => match dns::resolve_addresses(&target, 80) {
                 dns::DnsOutcome::Records(records) => Ok(EngineResult {
@@ -503,15 +504,23 @@ fn parse_http_target(target: &str) -> ZenResult<(String, String, u16, String, bo
         Some((a, p)) => (a, format!("/{p}")),
         None => (rest, "/".to_string()),
     };
-    let host = authority.rsplit_once('@').map(|(_, h)| h).unwrap_or(authority);
+    let host = authority
+        .rsplit_once('@')
+        .map(|(_, h)| h)
+        .unwrap_or(authority);
     let (host, port) = match host.rsplit_once(':') {
-        Some((h, p)) if p.chars().all(|c| c.is_ascii_digit()) => {
-            (h.to_string(), p.parse::<u16>().unwrap_or(if tls { 443 } else { 80 }))
-        }
+        Some((h, p)) if p.chars().all(|c| c.is_ascii_digit()) => (
+            h.to_string(),
+            p.parse::<u16>().unwrap_or(if tls { 443 } else { 80 }),
+        ),
         _ => (host.to_string(), if tls { 443 } else { 80 }),
     };
     if host.is_empty() {
-        return Err(ZenError::new(Area::Cfg, 5102, "HTTP target is missing a host"));
+        return Err(ZenError::new(
+            Area::Cfg,
+            5102,
+            "HTTP target is missing a host",
+        ));
     }
     Ok((scheme.into(), host, port, path, tls))
 }
@@ -532,9 +541,8 @@ impl Engine for HttpEngine {
 
     fn execute(&self, request: &EngineRequest) -> ZenResult<EngineResult> {
         let started = now_millis();
-        let target = as_string(request.input.get("target")).ok_or_else(|| {
-            json_error(self.name(), &request.operation, "missing target")
-        })?;
+        let target = as_string(request.input.get("target"))
+            .ok_or_else(|| json_error(self.name(), &request.operation, "missing target"))?;
         let method = request
             .input
             .get("method")
@@ -572,22 +580,27 @@ impl Engine for HttpEngine {
             .map_err(|e| ZenError::new(Area::Net, 5103, format!("{host}:{port}: {e}")))?
             .next()
             .ok_or_else(|| ZenError::new(Area::Net, 5104, "no address resolved"))?;
-        let mut stream = TcpStream::connect_timeout(&addr, Duration::from_secs(3)).map_err(|e| {
-            ZenError::new(Area::Net, 5105, format!("cannot connect to {host}:{port}: {e}"))
-        })?;
+        let mut stream =
+            TcpStream::connect_timeout(&addr, Duration::from_secs(3)).map_err(|e| {
+                ZenError::new(
+                    Area::Net,
+                    5105,
+                    format!("cannot connect to {host}:{port}: {e}"),
+                )
+            })?;
         let _ = stream.set_read_timeout(Some(Duration::from_secs(3)));
         let _ = stream.set_write_timeout(Some(Duration::from_secs(3)));
         let request_text = format!(
             "{method} {path} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: zentrion/{}\r\nConnection: close\r\nAccept: */*\r\n\r\n",
             env!("CARGO_PKG_VERSION")
         );
-        stream.write_all(request_text.as_bytes()).map_err(|e| {
-            ZenError::new(Area::Net, 5106, format!("write failed: {e}"))
-        })?;
+        stream
+            .write_all(request_text.as_bytes())
+            .map_err(|e| ZenError::new(Area::Net, 5106, format!("write failed: {e}")))?;
         let mut response = Vec::new();
-        stream.read_to_end(&mut response).map_err(|e| {
-            ZenError::new(Area::Net, 5107, format!("read failed: {e}"))
-        })?;
+        stream
+            .read_to_end(&mut response)
+            .map_err(|e| ZenError::new(Area::Net, 5107, format!("read failed: {e}")))?;
         let text = String::from_utf8_lossy(&response).to_string();
         let (head, body) = text.split_once("\r\n\r\n").unwrap_or((&text, ""));
         let mut lines = head.lines();
@@ -601,7 +614,10 @@ impl Engine for HttpEngine {
             .filter_map(|line| line.split_once(':'))
             .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
             .collect();
-        let assets = vec![asset(AssetKind::Url, target.clone()), asset(AssetKind::Host, host.clone())];
+        let assets = vec![
+            asset(AssetKind::Url, target.clone()),
+            asset(AssetKind::Host, host.clone()),
+        ];
         let mut findings = Vec::new();
         if !headers
             .iter()
@@ -694,9 +710,8 @@ impl Engine for UrlEngine {
     }
 
     fn execute(&self, request: &EngineRequest) -> ZenResult<EngineResult> {
-        let target = as_string(request.input.get("target")).ok_or_else(|| {
-            json_error(self.name(), &request.operation, "missing target")
-        })?;
+        let target = as_string(request.input.get("target"))
+            .ok_or_else(|| json_error(self.name(), &request.operation, "missing target"))?;
         let (scheme, rest) = target
             .split_once("://")
             .map(|(a, b)| (a.to_string(), b.to_string()))
@@ -711,7 +726,8 @@ impl Engine for UrlEngine {
             .map(|(_, h)| h)
             .unwrap_or(&authority)
             .to_string();
-        let suspicious = userinfo || path.contains("..") || target.contains("%2e") || target.contains("%2f");
+        let suspicious =
+            userinfo || path.contains("..") || target.contains("%2e") || target.contains("%2f");
         let mut findings = Vec::new();
         if suspicious {
             findings.push(finding(
@@ -811,7 +827,8 @@ impl Engine for ProcessEngine {
                     .input
                     .get("pid")
                     .and_then(|v| v.as_u64())
-                    .unwrap_or_else(|| u64::from(std::process::id())) as u32;
+                    .unwrap_or_else(|| u64::from(std::process::id()))
+                    as u32;
                 match insp.inspect(pid) {
                     process::InspectOutcome::Found(p) => Ok(EngineResult {
                         status: "success".into(),
@@ -881,9 +898,8 @@ impl Engine for FilesystemEngine {
     }
 
     fn execute(&self, request: &EngineRequest) -> ZenResult<EngineResult> {
-        let path = as_string(request.input.get("target")).ok_or_else(|| {
-            json_error(self.name(), &request.operation, "missing target")
-        })?;
+        let path = as_string(request.input.get("target"))
+            .ok_or_else(|| json_error(self.name(), &request.operation, "missing target"))?;
         let path = PathBuf::from(path);
         let insp = fs::inspector();
         let info = insp.inspect(&path)?;
@@ -932,9 +948,16 @@ impl Engine for SystemEngine {
 struct SecretsEngine;
 
 impl Engine for SecretsEngine {
-    fn name(&self) -> &'static str { "secrets" }
+    fn name(&self) -> &'static str {
+        "secrets"
+    }
     fn capabilities(&self) -> EngineCapabilities {
-        EngineCapabilities { operations: vec!["scan".into()], native: true, supported: true, description: "pattern-based secret detection".into() }
+        EngineCapabilities {
+            operations: vec!["scan".into()],
+            native: true,
+            supported: true,
+            description: "pattern-based secret detection".into(),
+        }
     }
     fn execute(&self, request: &EngineRequest) -> ZenResult<EngineResult> {
         let text = as_string(request.input.get("text")).unwrap_or_default();
@@ -977,9 +1000,16 @@ impl Engine for SecretsEngine {
 struct CodeEngine;
 
 impl Engine for CodeEngine {
-    fn name(&self) -> &'static str { "code" }
+    fn name(&self) -> &'static str {
+        "code"
+    }
     fn capabilities(&self) -> EngineCapabilities {
-        EngineCapabilities { operations: vec!["analyze".into()], native: true, supported: true, description: "simple line-oriented code analysis foundation".into() }
+        EngineCapabilities {
+            operations: vec!["analyze".into()],
+            native: true,
+            supported: true,
+            description: "simple line-oriented code analysis foundation".into(),
+        }
     }
     fn execute(&self, request: &EngineRequest) -> ZenResult<EngineResult> {
         let path = as_string(request.input.get("target")).unwrap_or_default();
@@ -1015,16 +1045,31 @@ impl Engine for CodeEngine {
                 ));
             }
         }
-        Ok(EngineResult { status: "success".into(), engine: self.name().into(), data: json!({"file": path, "lines": text.lines().count()}), findings, stdout: String::new(), stderr: String::new(), duration_ms: 0 })
+        Ok(EngineResult {
+            status: "success".into(),
+            engine: self.name().into(),
+            data: json!({"file": path, "lines": text.lines().count()}),
+            findings,
+            stdout: String::new(),
+            stderr: String::new(),
+            duration_ms: 0,
+        })
     }
 }
 
 struct DependenciesEngine;
 
 impl Engine for DependenciesEngine {
-    fn name(&self) -> &'static str { "dependencies" }
+    fn name(&self) -> &'static str {
+        "dependencies"
+    }
     fn capabilities(&self) -> EngineCapabilities {
-        EngineCapabilities { operations: vec!["analyze".into()], native: true, supported: true, description: "manifest dependency extraction foundation".into() }
+        EngineCapabilities {
+            operations: vec!["analyze".into()],
+            native: true,
+            supported: true,
+            description: "manifest dependency extraction foundation".into(),
+        }
     }
     fn execute(&self, request: &EngineRequest) -> ZenResult<EngineResult> {
         let path = as_string(request.input.get("target")).unwrap_or_default();
@@ -1042,52 +1087,112 @@ impl Engine for DependenciesEngine {
                 }
             }
         }
-        Ok(EngineResult { status: "success".into(), engine: self.name().into(), data: json!({"file": path, "dependencies": deps}), findings: vec![], stdout: String::new(), stderr: String::new(), duration_ms: 0 })
+        Ok(EngineResult {
+            status: "success".into(),
+            engine: self.name().into(),
+            data: json!({"file": path, "dependencies": deps}),
+            findings: vec![],
+            stdout: String::new(),
+            stderr: String::new(),
+            duration_ms: 0,
+        })
     }
 }
 
 struct ConfigurationEngine;
 
 impl Engine for ConfigurationEngine {
-    fn name(&self) -> &'static str { "configuration" }
+    fn name(&self) -> &'static str {
+        "configuration"
+    }
     fn capabilities(&self) -> EngineCapabilities {
-        EngineCapabilities { operations: vec!["inspect".into()], native: true, supported: true, description: "configuration inspection foundation".into() }
+        EngineCapabilities {
+            operations: vec!["inspect".into()],
+            native: true,
+            supported: true,
+            description: "configuration inspection foundation".into(),
+        }
     }
     fn execute(&self, request: &EngineRequest) -> ZenResult<EngineResult> {
-        Ok(EngineResult { status: "success".into(), engine: self.name().into(), data: json!({"target": request.input.get("target").cloned().unwrap_or(Value::Null)}), findings: vec![], stdout: String::new(), stderr: String::new(), duration_ms: 0 })
+        Ok(EngineResult {
+            status: "success".into(),
+            engine: self.name().into(),
+            data: json!({"target": request.input.get("target").cloned().unwrap_or(Value::Null)}),
+            findings: vec![],
+            stdout: String::new(),
+            stderr: String::new(),
+            duration_ms: 0,
+        })
     }
 }
 
 struct AssetsEngine;
 
 impl Engine for AssetsEngine {
-    fn name(&self) -> &'static str { "assets" }
+    fn name(&self) -> &'static str {
+        "assets"
+    }
     fn capabilities(&self) -> EngineCapabilities {
-        EngineCapabilities { operations: vec!["list".into()], native: true, supported: true, description: "asset projection from engine results".into() }
+        EngineCapabilities {
+            operations: vec!["list".into()],
+            native: true,
+            supported: true,
+            description: "asset projection from engine results".into(),
+        }
     }
     fn execute(&self, request: &EngineRequest) -> ZenResult<EngineResult> {
-        Ok(EngineResult { status: "success".into(), engine: self.name().into(), data: json!({"target": request.input.get("target").cloned().unwrap_or(Value::Null)}), findings: vec![], stdout: String::new(), stderr: String::new(), duration_ms: 0 })
+        Ok(EngineResult {
+            status: "success".into(),
+            engine: self.name().into(),
+            data: json!({"target": request.input.get("target").cloned().unwrap_or(Value::Null)}),
+            findings: vec![],
+            stdout: String::new(),
+            stderr: String::new(),
+            duration_ms: 0,
+        })
     }
 }
 
 struct CertificatesEngine;
 
 impl Engine for CertificatesEngine {
-    fn name(&self) -> &'static str { "certificates" }
+    fn name(&self) -> &'static str {
+        "certificates"
+    }
     fn capabilities(&self) -> EngineCapabilities {
-        EngineCapabilities { operations: vec!["inspect".into()], native: true, supported: false, description: tls::backend_description().to_string() }
+        EngineCapabilities {
+            operations: vec!["inspect".into()],
+            native: true,
+            supported: false,
+            description: tls::backend_description().to_string(),
+        }
     }
     fn execute(&self, request: &EngineRequest) -> ZenResult<EngineResult> {
-        Ok(EngineResult { status: "unsupported".into(), engine: self.name().into(), data: json!({"target": request.input.get("target").cloned().unwrap_or(Value::Null), "message": tls::backend_description()}), findings: vec![], stdout: String::new(), stderr: String::new(), duration_ms: 0 })
+        Ok(EngineResult {
+            status: "unsupported".into(),
+            engine: self.name().into(),
+            data: json!({"target": request.input.get("target").cloned().unwrap_or(Value::Null), "message": tls::backend_description()}),
+            findings: vec![],
+            stdout: String::new(),
+            stderr: String::new(),
+            duration_ms: 0,
+        })
     }
 }
 
 struct FindingsEngine;
 
 impl Engine for FindingsEngine {
-    fn name(&self) -> &'static str { "findings" }
+    fn name(&self) -> &'static str {
+        "findings"
+    }
     fn capabilities(&self) -> EngineCapabilities {
-        EngineCapabilities { operations: vec!["list".into(), "normalize".into()], native: true, supported: true, description: "finding normalization and deduplication".into() }
+        EngineCapabilities {
+            operations: vec!["list".into(), "normalize".into()],
+            native: true,
+            supported: true,
+            description: "finding normalization and deduplication".into(),
+        }
     }
     fn execute(&self, request: &EngineRequest) -> ZenResult<EngineResult> {
         let findings: Vec<Finding> = request
@@ -1096,13 +1201,22 @@ impl Engine for FindingsEngine {
             .and_then(|v| serde_json::from_value(v.clone()).ok())
             .unwrap_or_default();
         let deduped = dedupe_findings(findings);
-        Ok(EngineResult { status: "success".into(), engine: self.name().into(), data: json!({"count": deduped.len(), "findings": deduped}), findings: vec![], stdout: String::new(), stderr: String::new(), duration_ms: 0 })
+        Ok(EngineResult {
+            status: "success".into(),
+            engine: self.name().into(),
+            data: json!({"count": deduped.len(), "findings": deduped}),
+            findings: vec![],
+            stdout: String::new(),
+            stderr: String::new(),
+            duration_ms: 0,
+        })
     }
 }
 
 pub fn scan_store_dir() -> ZenResult<PathBuf> {
-    let base = z_core::config::user_data_dir()
-        .ok_or_else(|| ZenError::new(Area::Cfg, 5109, "cannot determine the user data directory"))?;
+    let base = z_core::config::user_data_dir().ok_or_else(|| {
+        ZenError::new(Area::Cfg, 5109, "cannot determine the user data directory")
+    })?;
     let dir = base.join("phase3");
     stdfs::create_dir_all(&dir)?;
     Ok(dir)
@@ -1119,7 +1233,11 @@ pub fn save_report(report: &ScanReport) -> ZenResult<PathBuf> {
 pub fn load_report() -> ZenResult<ScanReport> {
     let path = scan_store_dir()?.join("latest-scan.json");
     let text = stdfs::read_to_string(&path).map_err(|e| {
-        ZenError::new(Area::Fs, 5110, format!("cannot read scan report {}: {e}", path.display()))
+        ZenError::new(
+            Area::Fs,
+            5110,
+            format!("cannot read scan report {}: {e}", path.display()),
+        )
     })?;
     Ok(serde_json::from_str(&text)?)
 }
@@ -1205,7 +1323,16 @@ mod tests {
 
     #[test]
     fn dedupe_is_stable() {
-        let a = finding("x", Severity::Low, 0.5, None, vec!["e".into()], "d", "r", "s");
+        let a = finding(
+            "x",
+            Severity::Low,
+            0.5,
+            None,
+            vec!["e".into()],
+            "d",
+            "r",
+            "s",
+        );
         let b = a.clone();
         let out = dedupe_findings(vec![a, b]);
         assert_eq!(out.len(), 1);

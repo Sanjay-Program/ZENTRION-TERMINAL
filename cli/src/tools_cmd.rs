@@ -84,6 +84,284 @@ fn load_artifact(url: &str, offline: bool) -> ZenResult<Vec<u8>> {
 
 // ---------------------------------------------------------------------------
 
+#[derive(Debug, Clone, Copy)]
+struct ToolBundle {
+    name: &'static str,
+    title: &'static str,
+    description: &'static str,
+    tools: &'static [&'static str],
+}
+
+const KALI_TOP10: &[&str] = &[
+    "nmap",
+    "metasploit",
+    "wireshark",
+    "sqlmap",
+    "john",
+    "aircrack-ng",
+    "gobuster",
+    "burpsuite",
+    "hydra",
+    "hashcat",
+];
+
+const WEB_ASSESSMENT: &[&str] = &[
+    "burpsuite",
+    "zaproxy",
+    "sqlmap",
+    "ffuf",
+    "feroxbuster",
+    "gobuster",
+    "nikto",
+    "katana",
+    "httpx",
+    "whatweb",
+    "nuclei",
+];
+
+const RECON_DISCOVERY: &[&str] = &[
+    "nmap",
+    "masscan",
+    "rustscan",
+    "amass",
+    "theharvester",
+    "dnsrecon",
+    "subfinder",
+    "httpx",
+    "whatweb",
+];
+
+const DEVSECOPS: &[&str] = &["trivy", "gitleaks", "semgrep", "syft", "grype", "cosign"];
+
+const REVERSE_ENGINEERING: &[&str] = &["ghidra", "radare2", "binwalk", "yara"];
+
+const FORENSICS_IR: &[&str] = &["volatility3", "autopsy", "wireshark", "yara"];
+
+const WIRELESS_AUDIT: &[&str] = &["aircrack-ng", "wireshark"];
+
+const FULL_SECURITY_LAB: &[&str] = &[
+    "nmap",
+    "metasploit",
+    "wireshark",
+    "sqlmap",
+    "john",
+    "aircrack-ng",
+    "gobuster",
+    "burpsuite",
+    "hydra",
+    "hashcat",
+    "ffuf",
+    "feroxbuster",
+    "nikto",
+    "amass",
+    "theharvester",
+    "dnsrecon",
+    "masscan",
+    "rustscan",
+    "nuclei",
+    "katana",
+    "httpx",
+    "subfinder",
+    "whatweb",
+    "zaproxy",
+    "trivy",
+    "gitleaks",
+    "semgrep",
+    "syft",
+    "grype",
+    "cosign",
+    "ghidra",
+    "radare2",
+    "binwalk",
+    "yara",
+    "volatility3",
+    "autopsy",
+];
+
+fn bundle_catalog() -> &'static [ToolBundle] {
+    &[
+        ToolBundle {
+            name: "kali-top10",
+            title: "Kali-style top 10",
+            description: "Core security workflow tools modeled after Kali's top-tool grouping.",
+            tools: KALI_TOP10,
+        },
+        ToolBundle {
+            name: "web",
+            title: "Web assessment",
+            description: "Proxy, crawler, fuzzer, scanner and injection-testing workflow.",
+            tools: WEB_ASSESSMENT,
+        },
+        ToolBundle {
+            name: "recon",
+            title: "Recon and discovery",
+            description: "Network, DNS and external attack-surface discovery workflow.",
+            tools: RECON_DISCOVERY,
+        },
+        ToolBundle {
+            name: "devsecops",
+            title: "DevSecOps",
+            description: "SAST, secret scanning, SBOM, vulnerability and signing workflow.",
+            tools: DEVSECOPS,
+        },
+        ToolBundle {
+            name: "reverse",
+            title: "Reverse engineering",
+            description: "Binary, firmware and malware-analysis starter workflow.",
+            tools: REVERSE_ENGINEERING,
+        },
+        ToolBundle {
+            name: "forensics",
+            title: "Forensics and IR",
+            description: "Memory, disk, packet and file triage workflow.",
+            tools: FORENSICS_IR,
+        },
+        ToolBundle {
+            name: "wireless",
+            title: "Wireless audit",
+            description: "Wireless and packet-analysis workflow.",
+            tools: WIRELESS_AUDIT,
+        },
+        ToolBundle {
+            name: "security-lab",
+            title: "Full security lab",
+            description: "All curated security and development tools in the bundled registry.",
+            tools: FULL_SECURITY_LAB,
+        },
+    ]
+}
+
+fn find_bundle(name: &str) -> Option<ToolBundle> {
+    bundle_catalog().iter().copied().find(|b| b.name == name)
+}
+
+pub fn bundle_cmd(args: &[String], json: bool, project: Option<PathBuf>) -> ZenResult<()> {
+    let action = args.first().map(|s| s.as_str()).unwrap_or("list");
+
+    match action {
+        "list" => {
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "bundles": bundle_catalog().iter().map(|b| json!({
+                            "name": b.name,
+                            "title": b.title,
+                            "description": b.description,
+                            "tool_count": b.tools.len(),
+                            "tools": b.tools,
+                        })).collect::<Vec<_>>()
+                    }))?
+                );
+                return Ok(());
+            }
+
+            println!("{:<16} {:<22} TOOLS  DESCRIPTION", "BUNDLE", "TITLE");
+            for b in bundle_catalog() {
+                println!(
+                    "{:<16} {:<22} {:<5} {}",
+                    b.name,
+                    b.title,
+                    b.tools.len(),
+                    b.description
+                );
+            }
+            println!("\nInspect with: z bundle show <name>");
+            println!("Preview install commands with: z bundle plan <name>");
+            Ok(())
+        }
+        "show" | "plan" => {
+            let Some(name) = args.get(1) else {
+                return Err(ZenError::new(
+                    Area::Cfg,
+                    260,
+                    "usage: z bundle show <name> or z bundle plan <name>",
+                ));
+            };
+            let bundle = find_bundle(name).ok_or_else(|| {
+                ZenError::new(Area::Reg, 261, format!("unknown bundle: {name}"))
+                    .with_remediation("Run `z bundle list` to see available bundles.")
+            })?;
+            let reg = open_registry(project.as_ref(), None)?;
+            let index = reg.index()?;
+
+            let mut rows = Vec::new();
+            for tool in bundle.tools {
+                let versions = reg.versions(tool)?;
+                let latest = versions.last().cloned();
+                let entry = latest.as_ref().and_then(|v| {
+                    index
+                        .tools
+                        .iter()
+                        .find(|e| e.name == *tool && e.version == *v)
+                });
+                rows.push((
+                    *tool,
+                    latest,
+                    entry.and_then(|e| e.display_name.clone()),
+                    entry.and_then(|e| e.description.clone()),
+                    entry.map(|e| e.trust.as_str().to_string()),
+                ));
+            }
+
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "bundle": bundle.name,
+                        "title": bundle.title,
+                        "description": bundle.description,
+                        "install_commands": bundle.tools.iter().map(|t| format!("z install {t} --dry-run")).collect::<Vec<_>>(),
+                        "tools": rows.iter().map(|(name, version, display, description, trust)| json!({
+                            "name": name,
+                            "version": version,
+                            "display_name": display,
+                            "description": description,
+                            "trust": trust,
+                            "available": version.is_some(),
+                        })).collect::<Vec<_>>()
+                    }))?
+                );
+                return Ok(());
+            }
+
+            println!("{} ({})", bundle.title, bundle.name);
+            println!("  {}", bundle.description);
+            println!();
+            println!(
+                "{:<16} {:<10} {:<20} DESCRIPTION",
+                "TOOL", "VERSION", "TRUST"
+            );
+            for (name, version, _display, description, trust) in &rows {
+                println!(
+                    "{:<16} {:<10} {:<20} {}",
+                    name,
+                    version.clone().unwrap_or_else(|| "-".into()),
+                    trust.clone().unwrap_or_else(|| "missing".into()),
+                    description.clone().unwrap_or_default()
+                );
+            }
+            if action == "plan" {
+                println!();
+                println!("Preview each install:");
+                for tool in bundle.tools {
+                    println!("  z install {tool} --dry-run");
+                }
+                println!("Install after review:");
+                for tool in bundle.tools {
+                    println!("  z install {tool} --approve");
+                }
+            }
+            Ok(())
+        }
+        _ => Err(ZenError::new(
+            Area::Cfg,
+            262,
+            "usage: z bundle [list|show <name>|plan <name>]",
+        )),
+    }
+}
+
 pub fn search(
     query: &[String],
     category: Option<String>,

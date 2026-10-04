@@ -39,13 +39,24 @@ pub fn engine(args: &[String], json_out: bool) -> ZenResult<()> {
             if json_out {
                 println!("{}", serde_json::to_string_pretty(&list)?);
             } else {
-                println!("{:<16} {:<10} {:<10} DESCRIPTION", "ENGINE", "NATIVE", "STATUS");
+                println!(
+                    "{:<16} {:<10} {:<10} DESCRIPTION",
+                    "ENGINE", "NATIVE", "STATUS"
+                );
                 for info in list {
                     println!(
                         "{:<16} {:<10} {:<10} {}",
                         info.name,
-                        if info.capabilities.native { "yes" } else { "no" },
-                        if info.capabilities.supported { "ready" } else { "unavail" },
+                        if info.capabilities.native {
+                            "yes"
+                        } else {
+                            "no"
+                        },
+                        if info.capabilities.supported {
+                            "ready"
+                        } else {
+                            "unavail"
+                        },
                         info.capabilities.description,
                     );
                 }
@@ -53,12 +64,12 @@ pub fn engine(args: &[String], json_out: bool) -> ZenResult<()> {
             Ok(())
         }
         Some("info") => {
-            let name = args.get(1).ok_or_else(|| {
-                ZenError::new(Area::Cfg, 5200, "usage: z engine info <name>")
-            })?;
-            let info = registry.info(name).ok_or_else(|| {
-                ZenError::new(Area::Reg, 5201, format!("unknown engine: {name}"))
-            })?;
+            let name = args
+                .get(1)
+                .ok_or_else(|| ZenError::new(Area::Cfg, 5200, "usage: z engine info <name>"))?;
+            let info = registry
+                .info(name)
+                .ok_or_else(|| ZenError::new(Area::Reg, 5201, format!("unknown engine: {name}")))?;
             if json_out {
                 println!("{}", serde_json::to_string_pretty(&info)?);
             } else {
@@ -91,22 +102,20 @@ pub fn engine(args: &[String], json_out: bool) -> ZenResult<()> {
             }
             Ok(())
         }
-        Some(other) => Err(
-            ZenError::new(
-                Area::Cfg,
-                5202,
-                format!("unknown engine subcommand '{other}'"),
-            )
-            .with_remediation("Usage: z engine [list|info|doctor]"),
-        ),
+        Some(other) => Err(ZenError::new(
+            Area::Cfg,
+            5202,
+            format!("unknown engine subcommand '{other}'"),
+        )
+        .with_remediation("Usage: z engine [list|info|doctor]")),
     }
 }
 
 pub fn scan(args: &[String], json_out: bool) -> ZenResult<()> {
     let (profile, rest) = profile_from(args);
-    let target = rest.first().ok_or_else(|| {
-        ZenError::new(Area::Cfg, 5203, "usage: z scan [--profile NAME] <target>")
-    })?;
+    let target = rest
+        .first()
+        .ok_or_else(|| ZenError::new(Area::Cfg, 5203, "usage: z scan [--profile NAME] <target>"))?;
     let report = z_native::phase3::analyse_target(target, profile)?;
     if json_out {
         println!("{}", serde_json::to_string_pretty(&report)?);
@@ -126,15 +135,20 @@ pub fn finding(args: &[String], json_out: bool) -> ZenResult<()> {
                 println!("No findings.");
             } else {
                 for finding in &report.findings {
-                    println!("[{:?}] {} — {}", finding.severity, finding.title, finding.description);
+                    println!(
+                        "[{:?}] {} — {}",
+                        finding.severity, finding.title, finding.description
+                    );
                 }
             }
             Ok(())
         }
-        Some(other) => Err(
-            ZenError::new(Area::Cfg, 5204, format!("unknown finding subcommand '{other}'"))
-                .with_remediation("Usage: z finding list"),
-        ),
+        Some(other) => Err(ZenError::new(
+            Area::Cfg,
+            5204,
+            format!("unknown finding subcommand '{other}'"),
+        )
+        .with_remediation("Usage: z finding list")),
     }
 }
 
@@ -149,10 +163,12 @@ pub fn report(args: &[String], json_out: bool) -> ZenResult<()> {
             }
             Ok(())
         }
-        Some(other) => Err(
-            ZenError::new(Area::Cfg, 5205, format!("unknown report subcommand '{other}'"))
-                .with_remediation("Usage: z report latest"),
-        ),
+        Some(other) => Err(ZenError::new(
+            Area::Cfg,
+            5205,
+            format!("unknown report subcommand '{other}'"),
+        )
+        .with_remediation("Usage: z report latest")),
     }
 }
 
@@ -171,10 +187,12 @@ pub fn asset(args: &[String], json_out: bool) -> ZenResult<()> {
             }
             Ok(())
         }
-        Some(other) => Err(
-            ZenError::new(Area::Cfg, 5206, format!("unknown asset subcommand '{other}'"))
-                .with_remediation("Usage: z asset list"),
-        ),
+        Some(other) => Err(ZenError::new(
+            Area::Cfg,
+            5206,
+            format!("unknown asset subcommand '{other}'"),
+        )
+        .with_remediation("Usage: z asset list")),
     }
 }
 
@@ -214,7 +232,10 @@ pub fn ai(args: &[String], json_out: bool) -> ZenResult<()> {
                 println!("  target: {}", report.target);
                 println!("  priority: {}", out["priority"].as_str().unwrap_or("info"));
                 println!("  summary: {}", out["summary"].as_str().unwrap_or(""));
-                println!("  recommendation: {}", out["recommendation"].as_str().unwrap_or(""));
+                println!(
+                    "  recommendation: {}",
+                    out["recommendation"].as_str().unwrap_or("")
+                );
             }
             Ok(())
         }
@@ -252,7 +273,11 @@ pub fn ai(args: &[String], json_out: bool) -> ZenResult<()> {
                     println!("  sandbox: strict");
                 }
             } else {
-                return Err(ZenError::new(Area::Cfg, 5209, format!("unknown ai security subcommand '{status}'")));
+                return Err(ZenError::new(
+                    Area::Cfg,
+                    5209,
+                    format!("unknown ai security subcommand '{status}'"),
+                ));
             }
             Ok(())
         }
@@ -277,15 +302,27 @@ pub fn ai(args: &[String], json_out: bool) -> ZenResult<()> {
                     if json_out {
                         println!("{}", serde_json::to_string_pretty(&bom).unwrap_or_default());
                     } else {
-                        println!("AI-BOM generated for project '{}' at {}", bom.project_name, bom.timestamp);
+                        println!(
+                            "AI-BOM generated for project '{}' at {}",
+                            bom.project_name, bom.timestamp
+                        );
                         println!("Total Components: {}", bom.components.len());
                         for c in &bom.components {
-                            println!("  - [{}] {} (Provider: {})", c.component_type, c.name, c.provider.as_deref().unwrap_or("local"));
+                            println!(
+                                "  - [{}] {} (Provider: {})",
+                                c.component_type,
+                                c.name,
+                                c.provider.as_deref().unwrap_or("local")
+                            );
                         }
                     }
                 }
                 Err(e) => {
-                    return Err(ZenError::new(Area::Cfg, 5210, format!("failed to generate AI-BOM: {}", e)));
+                    return Err(ZenError::new(
+                        Area::Cfg,
+                        5210,
+                        format!("failed to generate AI-BOM: {}", e),
+                    ));
                 }
             }
             Ok(())
@@ -293,11 +330,9 @@ pub fn ai(args: &[String], json_out: bool) -> ZenResult<()> {
         Some("auto") => {
             let goal = args.get(1..).unwrap_or(&[]).join(" ");
             if goal.is_empty() {
-                return Err(
-                    ZenError::new(Area::Cfg, 5208, "usage: z ai auto <goal>")
-                );
+                return Err(ZenError::new(Area::Cfg, 5208, "usage: z ai auto <goal>"));
             }
-            
+
             // Start the async autonomous agent inside a tokio runtime
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
@@ -307,9 +342,11 @@ pub fn ai(args: &[String], json_out: bool) -> ZenResult<()> {
             });
             Ok(())
         }
-        Some(other) => Err(
-            ZenError::new(Area::Cfg, 5207, format!("unknown ai subcommand '{other}'"))
-                .with_remediation("Usage: z ai [analyze|privacy|auto|security|inventory]"),
-        ),
+        Some(other) => {
+            Err(
+                ZenError::new(Area::Cfg, 5207, format!("unknown ai subcommand '{other}'"))
+                    .with_remediation("Usage: z ai [analyze|privacy|auto|security|inventory]"),
+            )
+        }
     }
 }

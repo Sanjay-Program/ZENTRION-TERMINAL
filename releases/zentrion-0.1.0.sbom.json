@@ -1,0 +1,33 @@
+{
+  "schema_version": "1",
+  "product": "Zentrion Terminal",
+  "version": "0.1.0",
+  "type": "preview-sbom",
+  "components": [
+    {
+      "name": "z",
+      "type": "binary",
+      "language": "rust",
+      "workspace": "cli"
+    },
+    {
+      "name": "z-core",
+      "type": "library",
+      "language": "rust",
+      "workspace": "core"
+    },
+    {
+      "name": "ai",
+      "type": "library",
+      "language": "rust",
+      "workspace": "ai"
+    },
+    {
+      "name": "agents",
+      "type": "library",
+      "language": "rust",
+      "workspace": "agents"
+    }
+  ],
+  "notes": "Preview SBOM placeholder. Full release SBOM generation should be automated in CI."
+}

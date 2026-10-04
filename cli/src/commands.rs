@@ -165,6 +165,7 @@ pub fn doctor(json: bool, project: Option<PathBuf>) -> ZenResult<()> {
 pub fn status(json: bool, project: Option<PathBuf>) -> ZenResult<()> {
     let rt = init_runtime(project)?;
     let h = &rt.host;
+    let storage = z_core::config::storage_layout().ok();
     let policy = effective_policy(&rt);
     let policy_desc = match &policy {
         Ok(p) => format!(
@@ -195,6 +196,12 @@ pub fn status(json: bool, project: Option<PathBuf>) -> ZenResult<()> {
             serde_json::to_string_pretty(&json!({
                 "runtime": { "version": env!("CARGO_PKG_VERSION"), "state": "local-only" },
                 "configuration": z_core::config::user_config_dir().map(|p| p.display().to_string()),
+                "storage": storage.as_ref().map(|s| json!({
+                    "data_dir": s.data_dir.display().to_string(),
+                    "cache_dir": s.cache_dir.display().to_string(),
+                    "survives_upgrade": s.retention.survives_upgrade,
+                    "removed_by_uninstall": s.retention.removed_by_uninstall,
+                })),
                 "project": project_desc,
                 "project_explicit": rt.project_explicit,
                 "policy": policy_desc,
@@ -219,10 +226,158 @@ pub fn status(json: bool, project: Option<PathBuf>) -> ZenResult<()> {
             .map(|p| p.display().to_string())
             .unwrap_or_else(|| "n/a".into())
     );
+    if let Some(s) = &storage {
+        println!("  Data dir:     {}", s.data_dir.display());
+        println!("  Cache dir:    {}", s.cache_dir.display());
+        println!("  Persistence:  survives upgrade/delete; uninstall preserves user data");
+    }
     println!("  Project:      {project_desc}");
     println!("  Policy:       {policy_desc}");
     println!("  Audit:        {audit_info}");
     println!("  Secrets:      never displayed by status");
+    Ok(())
+}
+
+/// `z setup` — first-run local setup and onboarding checklist.
+pub fn setup(json: bool) -> ZenResult<()> {
+    let storage = z_core::config::ensure_storage_layout()?;
+    let h = z_core::host::detect();
+
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "status": "ok",
+                "platform": { "os": h.os.as_str(), "arch": h.arch.as_str(), "supported": h.supported },
+                "storage": storage,
+                "next_steps": [
+                    "z doctor",
+                    "z status",
+                    "z bundle list",
+                    "z ui"
+                ],
+            }))?
+        );
+        return Ok(());
+    }
+
+    println!("Zentrion setup");
+    println!("  Platform:     {} ({})", h.os.as_str(), h.arch.as_str());
+    println!("  Config dir:   {}", storage.config_dir.display());
+    println!("  Data dir:     {}", storage.data_dir.display());
+    println!("  Cache dir:    {}", storage.cache_dir.display());
+    println!("  Tools dir:    {}", storage.tools_dir.display());
+    println!("  Memory dir:   {}", storage.memory_dir.display());
+    println!("  Sessions dir: {}", storage.sessions_dir.display());
+    println!();
+    println!("Persistence:");
+    println!("  User data survives binary deletion, app upgrades and normal uninstall.");
+    println!("  Cache is disposable and may be cleaned without losing configuration.");
+    println!();
+    println!("Next:");
+    println!("  z doctor");
+    println!("  z status");
+    println!("  z bundle list");
+    println!("  z ui");
+    Ok(())
+}
+
+/// `z storage` — inspect durable local storage paths and retention rules.
+pub fn storage(args: &[String], json: bool) -> ZenResult<()> {
+    let action = args.first().map(|s| s.as_str()).unwrap_or("show");
+    let layout = match action {
+        "init" => z_core::config::ensure_storage_layout()?,
+        "show" | "doctor" | "policy" => z_core::config::storage_layout()?,
+        _ => {
+            return Err(ZenError::new(
+                Area::Cfg,
+                43,
+                "usage: z storage [show|init|doctor|policy]",
+            ))
+        }
+    };
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&layout)?);
+        return Ok(());
+    }
+
+    match action {
+        "policy" => {
+            println!("Zentrion storage policy");
+            println!("  Config, data, tools, audit, memory and sessions are durable.");
+            println!("  They survive binary deletion, upgrades and normal uninstall.");
+            println!("  Cache is non-essential and can be cleaned.");
+            println!("  No storage command purges user data automatically.");
+        }
+        "doctor" => {
+            let check = |p: &std::path::Path| {
+                if p.exists() {
+                    if z_core::fs::is_writable(p) {
+                        "ok"
+                    } else {
+                        "read-only"
+                    }
+                } else {
+                    "missing"
+                }
+            };
+            println!("Zentrion storage doctor");
+            println!(
+                "  Config:   {:<10} {}",
+                check(&layout.config_dir),
+                layout.config_dir.display()
+            );
+            println!(
+                "  Data:     {:<10} {}",
+                check(&layout.data_dir),
+                layout.data_dir.display()
+            );
+            println!(
+                "  Cache:    {:<10} {}",
+                check(&layout.cache_dir),
+                layout.cache_dir.display()
+            );
+            println!(
+                "  Tools:    {:<10} {}",
+                check(&layout.tools_dir),
+                layout.tools_dir.display()
+            );
+            println!(
+                "  Audit:    {:<10} {}",
+                check(&layout.audit_dir),
+                layout.audit_dir.display()
+            );
+            println!(
+                "  Memory:   {:<10} {}",
+                check(&layout.memory_dir),
+                layout.memory_dir.display()
+            );
+            println!(
+                "  Sessions: {:<10} {}",
+                check(&layout.sessions_dir),
+                layout.sessions_dir.display()
+            );
+        }
+        _ => {
+            println!("Zentrion storage");
+            println!("  Config:   {}", layout.config_dir.display());
+            println!("  Data:     {}", layout.data_dir.display());
+            println!("  Cache:    {}", layout.cache_dir.display());
+            println!("  Tools:    {}", layout.tools_dir.display());
+            println!("  Audit:    {}", layout.audit_dir.display());
+            println!("  History:  {}", layout.history_dir.display());
+            println!("  Sessions: {}", layout.sessions_dir.display());
+            println!("  Memory:   {}", layout.memory_dir.display());
+            println!("  Agents:   {}", layout.agents_dir.display());
+            println!("  Scans:    {}", layout.scans_dir.display());
+            println!();
+            println!("Retention: survives upgrades and normal uninstall; cache is disposable.");
+            if action == "init" {
+                println!("Initialized missing directories and storage manifest.");
+            }
+        }
+    }
     Ok(())
 }
 
@@ -313,16 +468,20 @@ pub fn config(args: &[String], json: bool) -> ZenResult<()> {
             .with_remediation("Settable keys: log_level, telemetry_enabled"))
         }
         Some("set-secret") => {
-            let key = args
-                .get(1)
-                .ok_or_else(|| ZenError::new(Area::Cfg, 22, "usage: z config set-secret <key> <value>"))?;
-            let value = args
-                .get(2)
-                .ok_or_else(|| ZenError::new(Area::Cfg, 23, "usage: z config set-secret <key> <value>"))?;
-                
-            z_identity::vault::set_secret(key, value)
-                .map_err(|e| ZenError::new(Area::Cfg, 29, format!("failed to store secret: {}", e)))?;
-            println!("Secret '{}' successfully stored in the AES-256 encrypted vault.", key);
+            let key = args.get(1).ok_or_else(|| {
+                ZenError::new(Area::Cfg, 22, "usage: z config set-secret <key> <value>")
+            })?;
+            let value = args.get(2).ok_or_else(|| {
+                ZenError::new(Area::Cfg, 23, "usage: z config set-secret <key> <value>")
+            })?;
+
+            z_identity::vault::set_secret(key, value).map_err(|e| {
+                ZenError::new(Area::Cfg, 29, format!("failed to store secret: {}", e))
+            })?;
+            println!(
+                "Secret '{}' successfully stored in the AES-256 encrypted vault.",
+                key
+            );
             Ok(())
         }
         Some("path") => {
@@ -438,11 +597,19 @@ pub fn init(path: Option<PathBuf>, name: Option<String>, json: bool) -> ZenResul
 }
 
 /// `z project [check]` — display or validate the current project.
-pub fn project(check: bool, args: &[String], project: Option<PathBuf>, json: bool) -> ZenResult<()> {
+pub fn project(
+    check: bool,
+    args: &[String],
+    project: Option<PathBuf>,
+    json: bool,
+) -> ZenResult<()> {
     if let Some("scan") = args.first().map(|s| s.as_str()) {
         let root = project.unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-        println!("Running Developer Security pipeline on {}...", root.display());
-        
+        println!(
+            "Running Developer Security pipeline on {}...",
+            root.display()
+        );
+
         let mut results = serde_json::json!({});
         let manifest_path = root.join("Cargo.toml");
         let content = if manifest_path.exists() {
@@ -453,20 +620,23 @@ pub fn project(check: bool, args: &[String], project: Option<PathBuf>, json: boo
 
         // 1. Secret Scanning
         let secrets = devsec::scanner::scan_for_secrets(&content);
-        println!("  [Secrets] Found {} potential hardcoded secrets", secrets.len());
+        println!(
+            "  [Secrets] Found {} potential hardcoded secrets",
+            secrets.len()
+        );
         results["secrets"] = serde_json::json!(secrets);
-        
+
         // 2. SAST Scanning
         let sast = devsec::sast::check_dangerous_patterns(&content);
         println!("  [SAST]    Found {} dangerous patterns", sast.len());
         results["sast"] = serde_json::json!(sast);
-        
+
         // 3. SBOM Generation
         if let Ok(sbom) = devsec::sbom::generate_sbom(&content) {
             println!("  [SBOM]    Generated SBOM");
             results["sbom"] = serde_json::json!(sbom);
         }
-        
+
         if json {
             println!("{}", serde_json::to_string_pretty(&results)?);
         } else {
@@ -748,7 +918,11 @@ pub fn run(
         println!("Executing safe native bundled tool: {}", program);
         let rt = tokio::runtime::Runtime::new().unwrap();
         if let Err(e) = rt.block_on(tool.execute(&args)) {
-            return Err(z_core::error::ZenError::new(z_core::error::Area::Exe, 120, format!("bundled tool failed: {}", e)));
+            return Err(z_core::error::ZenError::new(
+                z_core::error::Area::Exe,
+                120,
+                format!("bundled tool failed: {}", e),
+            ));
         }
         return Ok(());
     }

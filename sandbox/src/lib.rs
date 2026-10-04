@@ -1,5 +1,5 @@
-use std::process::Command;
 use anyhow::Result;
+use std::process::Command;
 
 #[cfg(target_os = "linux")]
 pub mod linux;

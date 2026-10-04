@@ -15,6 +15,25 @@
 5. Swap atomically.
 6. Roll back if the update fails.
 
+## Storage preservation
+
+Updates must only replace application files: the executable, bundled
+documentation and installer-managed integration files. They must not delete or
+rewrite durable user storage.
+
+Durable storage includes:
+
+- configuration,
+- audit logs,
+- installed tools,
+- sessions and history,
+- agent/project memory,
+- scan reports.
+
+Use `z storage show` to inspect the paths and `z storage policy` to show the
+retention contract. Cache is disposable, but normal updates still leave it in
+place unless the user explicitly runs a cache-cleaning command.
+
 ## Current limitations
 
 - Automated self-update is not yet a complete end-user workflow in this repo.

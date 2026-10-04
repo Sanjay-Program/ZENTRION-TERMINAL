@@ -4,6 +4,8 @@ Install, verify, run and remove tools through one interface on any platform.
 
 ```
 z search nmap
+z bundle list
+z bundle plan web
 z info nmap
 z install nmap
 z list
@@ -26,12 +28,17 @@ z verify nmap
 5. **Installation is transactional.** A failed install leaves the previous
    version untouched and never leaves a half-installed tool marked active.
 6. **No implicit compatibility environment.** No WSL, no container, no VM.
+7. **Bundles are plans first.** Curated packs group tools by workflow, but they
+   print reviewable install commands instead of silently installing a lab.
 
 ## Command summary
 
 | Command | Purpose |
 |---|---|
 | `z search <terms>` | Search registry metadata |
+| `z bundle list` | Show curated workflow bundles |
+| `z bundle show <name>` | Inspect one bundle and its tools |
+| `z bundle plan <name>` | Print install previews for a bundle |
 | `z info <tool>` | Metadata, permissions, compatibility |
 | `z install <tool>` | Install (verified); `--dry-run` previews, `--offline` uses cache |
 | `z list` | Installed tools; `--outdated`, `--json` |
@@ -47,6 +54,32 @@ z verify nmap
 | `z cache [list\|clean]` | Artifact cache |
 
 `--json` on any of these produces machine-readable output with no prose mixed in.
+
+## Curated bundles
+
+Zentrion's bundled registry follows the same idea as Kali metapackages: start
+from a workflow, then choose the tools. Bundles are local catalog entries; they
+do not bypass trust, checksum, platform, policy or approval checks.
+
+| Bundle | Purpose |
+|---|---|
+| `kali-top10` | Core security tools: Nmap, Metasploit, Wireshark, sqlmap, John, Aircrack-ng, Gobuster, Burp Suite, Hydra and Hashcat |
+| `web` | Web proxying, crawling, fuzzing, fingerprinting, injection testing and template scanning |
+| `recon` | Network, DNS and external attack-surface discovery |
+| `devsecops` | Secret scanning, SAST, SBOM, vulnerability and signing workflows |
+| `reverse` | Binary, firmware and malware-analysis starters |
+| `forensics` | Memory, disk, packet and file triage |
+| `wireless` | Wireless auditing and packet analysis |
+| `security-lab` | Every curated registry entry |
+
+Useful examples:
+
+```
+z bundle list
+z bundle show devsecops
+z bundle plan security-lab
+z search scanner
+```
 
 ## Where things live
 

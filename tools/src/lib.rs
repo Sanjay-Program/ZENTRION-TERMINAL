@@ -13,11 +13,18 @@ impl ToolManager {
         }
     }
 
-    pub async fn install_tool(&self, name: &str, url: &str, expected_sha256: Option<&str>) -> Result<()> {
+    pub async fn install_tool(
+        &self,
+        name: &str,
+        url: &str,
+        expected_sha256: Option<&str>,
+    ) -> Result<()> {
         let dest_path = self.tools_dir.join(name);
-        
-        download_tool(url, &dest_path).await.context("Failed to download tool")?;
-        
+
+        download_tool(url, &dest_path)
+            .await
+            .context("Failed to download tool")?;
+
         if let Some(checksum) = expected_sha256 {
             let is_valid = verify_checksum(&dest_path, checksum).await?;
             if !is_valid {
@@ -26,7 +33,7 @@ impl ToolManager {
                 anyhow::bail!("Checksum verification failed for tool: {}", name);
             }
         }
-        
+
         Ok(())
     }
 
@@ -34,7 +41,7 @@ impl ToolManager {
         if !self.tools_dir.exists() {
             return Ok(Vec::new());
         }
-        
+
         let mut tools = Vec::new();
         for entry in std::fs::read_dir(&self.tools_dir)? {
             let entry = entry?;
@@ -45,7 +52,7 @@ impl ToolManager {
                 }
             }
         }
-        
+
         Ok(tools)
     }
 

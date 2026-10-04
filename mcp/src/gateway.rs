@@ -42,10 +42,10 @@ impl McpGateway {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .spawn()?;
-            
+
         Ok(Self { child })
     }
-    
+
     pub async fn send_request(&mut self, req: JsonRpcRequest) -> Result<()> {
         if let Some(stdin) = self.child.stdin.as_mut() {
             let mut data = serde_json::to_vec(&req)?;
@@ -54,7 +54,7 @@ impl McpGateway {
         }
         Ok(())
     }
-    
+
     pub async fn receive_response(&mut self) -> Result<Option<JsonRpcResponse>> {
         if let Some(stdout) = self.child.stdout.as_mut() {
             let mut reader = BufReader::new(stdout);

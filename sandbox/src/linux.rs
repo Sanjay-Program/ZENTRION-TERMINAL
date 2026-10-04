@@ -1,7 +1,7 @@
-use std::process::Command;
-use std::os::unix::process::CommandExt;
-use crate::{Sandbox, RiskLevel};
+use crate::{RiskLevel, Sandbox};
 use anyhow::Result;
+use std::os::unix::process::CommandExt;
+use std::process::Command;
 
 pub struct LinuxSandbox {
     risk: RiskLevel,
@@ -41,7 +41,7 @@ impl Sandbox for LinuxSandbox {
                 Ok(())
             });
         }
-        
+
         let child = command.spawn()?;
         Ok(child)
     }

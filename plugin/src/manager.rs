@@ -32,9 +32,13 @@ impl PluginManager {
         if !path.exists() {
             return Err(anyhow!("WASM file does not exist: {:?}", path));
         }
-        
+
         let manifest = PluginManifest {
-            name: path.file_stem().unwrap_or_default().to_string_lossy().into_owned(),
+            name: path
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned(),
             version: "1.0.0".to_string(),
             plugin_type: PluginType::Wasm,
             entrypoint: path.to_string_lossy().into_owned(),

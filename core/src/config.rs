@@ -140,6 +140,11 @@ pub fn user_data_dir() -> Option<PathBuf> {
 }
 
 pub fn cache_dir() -> Option<PathBuf> {
+    if let Ok(x) = std::env::var("ZENTRION_CACHE_DIR") {
+        if !x.is_empty() {
+            return Some(PathBuf::from(x));
+        }
+    }
     if cfg!(target_os = "windows") {
         std::env::var("LOCALAPPDATA")
             .ok()
@@ -152,6 +157,90 @@ pub fn cache_dir() -> Option<PathBuf> {
             _ => home_dir().map(|h| h.join(".cache/zentrion")),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct StorageLayout {
+    pub config_dir: PathBuf,
+    pub data_dir: PathBuf,
+    pub cache_dir: PathBuf,
+    pub tools_dir: PathBuf,
+    pub audit_dir: PathBuf,
+    pub sessions_dir: PathBuf,
+    pub history_dir: PathBuf,
+    pub memory_dir: PathBuf,
+    pub agents_dir: PathBuf,
+    pub scans_dir: PathBuf,
+    pub docs_dir: PathBuf,
+    pub retention: StorageRetention,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct StorageRetention {
+    pub survives_binary_delete: bool,
+    pub survives_upgrade: bool,
+    pub removed_by_uninstall: bool,
+    pub cache_is_disposable: bool,
+}
+
+impl Default for StorageRetention {
+    fn default() -> Self {
+        Self {
+            survives_binary_delete: true,
+            survives_upgrade: true,
+            removed_by_uninstall: false,
+            cache_is_disposable: true,
+        }
+    }
+}
+
+pub fn storage_layout() -> ZenResult<StorageLayout> {
+    let config_dir = user_config_dir()
+        .ok_or_else(|| ZenError::new(Area::Cfg, 40, "cannot determine config directory"))?;
+    let data_dir = user_data_dir()
+        .ok_or_else(|| ZenError::new(Area::Cfg, 41, "cannot determine data directory"))?;
+    let cache_dir = cache_dir()
+        .ok_or_else(|| ZenError::new(Area::Cfg, 42, "cannot determine cache directory"))?;
+
+    Ok(StorageLayout {
+        tools_dir: data_dir.join("tools"),
+        audit_dir: data_dir.join("audit"),
+        sessions_dir: data_dir.join("sessions"),
+        history_dir: data_dir.join("history"),
+        memory_dir: data_dir.join("memory"),
+        agents_dir: data_dir.join("agents"),
+        scans_dir: data_dir.join("scans"),
+        docs_dir: data_dir.join("docs"),
+        config_dir,
+        data_dir,
+        cache_dir,
+        retention: StorageRetention::default(),
+    })
+}
+
+pub fn ensure_storage_layout() -> ZenResult<StorageLayout> {
+    let layout = storage_layout()?;
+    for dir in [
+        &layout.config_dir,
+        &layout.data_dir,
+        &layout.cache_dir,
+        &layout.tools_dir,
+        &layout.audit_dir,
+        &layout.sessions_dir,
+        &layout.history_dir,
+        &layout.memory_dir,
+        &layout.agents_dir,
+        &layout.scans_dir,
+        &layout.docs_dir,
+    ] {
+        std::fs::create_dir_all(dir)?;
+    }
+
+    let manifest = layout.data_dir.join("storage.json");
+    if !manifest.exists() {
+        std::fs::write(&manifest, serde_json::to_string_pretty(&layout)?)?;
+    }
+    Ok(layout)
 }
 
 #[cfg(test)]
@@ -215,5 +304,15 @@ mod tests {
         c.apply_env();
         assert!(!c.telemetry_enabled);
         std::env::remove_var("ZENTRION_TELEMETRY");
+    }
+
+    #[test]
+    fn cache_dir_can_be_overridden() {
+        std::env::set_var("ZENTRION_CACHE_DIR", "/tmp/zentrion-cache-test");
+        assert_eq!(
+            cache_dir().unwrap(),
+            PathBuf::from("/tmp/zentrion-cache-test")
+        );
+        std::env::remove_var("ZENTRION_CACHE_DIR");
     }
 }

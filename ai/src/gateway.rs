@@ -14,7 +14,7 @@ impl AIGateway {
     pub async fn chat(&self, mut request: ChatRequest) -> Result<ChatResponse> {
         self.redact_secrets(&mut request);
         self.check_policy(&request)?;
-        
+
         self.provider.chat(request).await
     }
 

@@ -14,9 +14,9 @@
 Nothing — human, AI, plugin, IDE, or CI — touches the OS without an explicit, policy-checked, audited capability.
 
 [![License: BUSL-1.1](https://img.shields.io/badge/License-BUSL--1.1-orange.svg?style=flat-square)](LICENSE)
-[![Platform: Linux x64](https://img.shields.io/badge/Linux-x64%20Ready-brightgreen?style=flat-square&logo=linux)](docs/PLATFORM_SUPPORT.md)
-[![Platform: Windows](https://img.shields.io/badge/Windows-Coming%20Phase%202-blue?style=flat-square&logo=windows)](docs/12-WINDOWS.md)
-[![Platform: macOS](https://img.shields.io/badge/macOS-Coming%20Phase%202-silver?style=flat-square&logo=apple)](docs/13-MACOS.md)
+[![Platform: Linux x64](https://img.shields.io/badge/Linux-x64%20Download-brightgreen?style=flat-square&logo=linux)](releases/DOWNLOAD_GUIDE.md)
+[![Platform: Windows x64](https://img.shields.io/badge/Windows-x64%20Download-blue?style=flat-square&logo=windows)](releases/DOWNLOAD_GUIDE.md)
+[![Platform: macOS Universal](https://img.shields.io/badge/macOS-Universal%20Download-silver?style=flat-square&logo=apple)](releases/DOWNLOAD_GUIDE.md)
 [![Built with Rust](https://img.shields.io/badge/Built%20with-Rust-orange?style=flat-square&logo=rust)](Cargo.toml)
 [![Version](https://img.shields.io/badge/Version-0.1.0-purple?style=flat-square)](CHANGELOG.md)
 [![Security: Policy-Enforced](https://img.shields.io/badge/Security-Policy--Enforced-red?style=flat-square)](SECURITY.md)
@@ -37,6 +37,7 @@ Nothing — human, AI, plugin, IDE, or CI — touches the OS without an explicit
   - [macOS](#option-4--macos)
   - [Uninstall](#uninstall)
 - [Quick Start](#-quick-start)
+- [AI Provider Setup](#-ai-provider-setup)
 - [All Commands — Complete Reference](#-all-commands--complete-reference)
 - [Security Architecture](#-security-architecture)
   - [Policy System](#1-policy-system)
@@ -149,55 +150,52 @@ Security is enforced in **code**, not by trusting a model to behave. A fully pro
 
 ## 📥 Download
 
-### Linux x86_64 (Current Stable Release — Phase 14)
+Full release manifest: [`releases/releases.json`](releases/releases.json)  
+Install guide: [`releases/DOWNLOAD_GUIDE.md`](releases/DOWNLOAD_GUIDE.md)
 
-| File | Size | SHA-256 |
-|------|------|---------|
-| [`zentrion-linux-x64.tar.gz`](dist/zentrion-linux-x64.tar.gz) | ~1.4 MB | `325ebcb36115976c5c4de30a093181c9c12623fd675febfa1da2072a49d9c442` |
-| [`zentrion-linux-x64.tar.gz.sha256`](dist/zentrion-linux-x64.tar.gz.sha256) | — | checksum file |
-| [`zentrion-linux-x64.json`](dist/zentrion-linux-x64.json) | — | manifest |
+| Platform | Download | SHA-256 |
+|---|---|---|
+| Linux x86_64 | [`zentrion-linux-x64.tar.gz`](releases/zentrion-linux-x64.tar.gz) | `625c8711a80e6d01fe2542be5ab09cd0e10e9093761552c8a9837d01633699ca` |
+| macOS universal | [`zentrion-macos-universal.tar.gz`](releases/zentrion-macos-universal.tar.gz) | `938179d18b0793d47fdb0f00b5b544f64c7761ac6872f85057acd3086bb98b90` |
+| Windows x64 | [`Zentrion-Windows-x64.msi`](releases/Zentrion-Windows-x64.msi) | `e8b7b7fa115bdbb549cce67f94b5affd3be80c7862938c96d78525df618ae40d` |
+
+### Linux
 
 ```sh
-# Download
-wget https://github.com/Sanjay-Program/ZENTRION-TERMINAL/releases/download/v1.14.0/zentrion-linux-x64.tar.gz
-wget https://github.com/Sanjay-Program/ZENTRION-TERMINAL/releases/download/v1.14.0/zentrion-linux-x64.tar.gz.sha256
-
-# Verify checksum BEFORE installing
+base="https://raw.githubusercontent.com/Sanjay-Program/ZENTRION-TERMINAL/main/releases"
+curl -LO "$base/zentrion-linux-x64.tar.gz"
+curl -LO "$base/zentrion-linux-x64.tar.gz.sha256"
 sha256sum -c zentrion-linux-x64.tar.gz.sha256
-
-# Install (no root required)
-./scripts/install.sh --archive zentrion-linux-x64.tar.gz \
-  --sha256 325ebcb36115976c5c4de30a093181c9c12623fd675febfa1da2072a49d9c442
+tar -xzf zentrion-linux-x64.tar.gz
+install -Dm755 z "$HOME/.local/bin/z"
+z doctor
 ```
 
-### macOS (Apple Silicon & Intel) (Current Stable Release — Phase 14)
+### macOS
 
 ```sh
-# Download the verified binary
-curl -LO https://github.com/Sanjay-Program/ZENTRION-TERMINAL/releases/download/v1.14.0/zentrion-macos-universal.tar.gz
-curl -LO https://github.com/Sanjay-Program/ZENTRION-TERMINAL/releases/download/v1.14.0/zentrion-macos-universal.tar.gz.sha256
-
-# Verify checksum BEFORE installing
+base="https://raw.githubusercontent.com/Sanjay-Program/ZENTRION-TERMINAL/main/releases"
+curl -LO "$base/zentrion-macos-universal.tar.gz"
+curl -LO "$base/zentrion-macos-universal.tar.gz.sha256"
 shasum -a 256 -c zentrion-macos-universal.tar.gz.sha256
-
-# Install (no root required)
-./scripts/install.sh --archive zentrion-macos-universal.tar.gz
+tar -xzf zentrion-macos-universal.tar.gz
+install -m755 z /usr/local/bin/z
+z doctor
 ```
 
-### Windows (x64 & ARM64) (Current Stable Release — Phase 14)
+### Windows
 
 ```powershell
-# Download the verified MSI installer
-Invoke-WebRequest -Uri "https://github.com/Sanjay-Program/ZENTRION-TERMINAL/releases/download/v1.14.0/Zentrion-Windows-x64.msi" -OutFile "Zentrion-Windows.msi"
-Invoke-WebRequest -Uri "https://github.com/Sanjay-Program/ZENTRION-TERMINAL/releases/download/v1.14.0/Zentrion-Windows-x64.msi.sha256" -OutFile "Zentrion-Windows.msi.sha256"
+$base = "https://raw.githubusercontent.com/Sanjay-Program/ZENTRION-TERMINAL/main/releases"
+Invoke-WebRequest "$base/Zentrion-Windows-x64.msi" -OutFile "Zentrion-Windows-x64.msi"
+Invoke-WebRequest "$base/Zentrion-Windows-x64.msi.sha256" -OutFile "Zentrion-Windows-x64.msi.sha256"
 
-# Verify checksum BEFORE installing
-$expectedHash = Get-Content Zentrion-Windows.msi.sha256
-$actualHash = (Get-FileHash Zentrion-Windows.msi -Algorithm SHA256).Hash
-if ($actualHash -eq $expectedHash.Split(' ')[0].ToUpper()) { echo "Checksum OK" } else { echo "Checksum FAILED" }
+$expected = (Get-Content Zentrion-Windows-x64.msi.sha256).Split(" ")[0].ToUpperInvariant()
+$actual = (Get-FileHash Zentrion-Windows-x64.msi -Algorithm SHA256).Hash
+if ($actual -ne $expected) { throw "Checksum failed: $actual" }
 
-# Install (No admin required)
-Start-Process -Wait -FilePath msiexec.exe -ArgumentList "/i Zentrion-Windows.msi /qb"
+Start-Process -Wait -FilePath msiexec.exe -ArgumentList "/i Zentrion-Windows-x64.msi /qb"
+z doctor
 ```
 
 ---
@@ -211,7 +209,7 @@ Start-Process -Wait -FilePath msiexec.exe -ArgumentList "/i Zentrion-Windows.msi
 
 # 2. Install — no root required, installs to ~/.local/bin/z by default
 scripts/install.sh --archive zentrion-linux-x64.tar.gz \
-  --sha256 325ebcb36115976c5c4de30a093181c9c12623fd675febfa1da2072a49d9c442
+  --sha256 625c8711a80e6d01fe2542be5ab09cd0e10e9093761552c8a9837d01633699ca
 
 # 3. Add to PATH if not already
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
@@ -251,11 +249,16 @@ echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
 ### Option 3 — Windows
 
 ```powershell
-# Download from GitHub Releases
-Invoke-WebRequest -Uri "https://github.com/Sanjay-Program/ZENTRION-TERMINAL/releases/download/v1.14.0/Zentrion-Windows-x64.msi" -OutFile "Zentrion-Windows.msi"
+$base = "https://raw.githubusercontent.com/Sanjay-Program/ZENTRION-TERMINAL/main/releases"
+Invoke-WebRequest "$base/Zentrion-Windows-x64.msi" -OutFile "Zentrion-Windows-x64.msi"
+Invoke-WebRequest "$base/Zentrion-Windows-x64.msi.sha256" -OutFile "Zentrion-Windows-x64.msi.sha256"
+
+$expected = (Get-Content Zentrion-Windows-x64.msi.sha256).Split(" ")[0].ToUpperInvariant()
+$actual = (Get-FileHash Zentrion-Windows-x64.msi -Algorithm SHA256).Hash
+if ($actual -ne $expected) { throw "Checksum failed: $actual" }
 
 # Install locally (No admin required, installs to %LOCALAPPDATA%\Zentrion)
-Start-Process -Wait -FilePath msiexec.exe -ArgumentList "/i Zentrion-Windows.msi /qb"
+Start-Process -Wait -FilePath msiexec.exe -ArgumentList "/i Zentrion-Windows-x64.msi /qb"
 
 # Then verify:
 z doctor
@@ -268,8 +271,10 @@ z doctor
 ### Option 4 — macOS
 
 ```sh
-# Download universal binary
-curl -LO https://github.com/Sanjay-Program/ZENTRION-TERMINAL/releases/download/v1.14.0/zentrion-macos-universal.tar.gz
+base="https://raw.githubusercontent.com/Sanjay-Program/ZENTRION-TERMINAL/main/releases"
+curl -LO "$base/zentrion-macos-universal.tar.gz"
+curl -LO "$base/zentrion-macos-universal.tar.gz.sha256"
+shasum -a 256 -c zentrion-macos-universal.tar.gz.sha256
 
 # Install locally
 ./scripts/install.sh --archive zentrion-macos-universal.tar.gz
@@ -284,7 +289,7 @@ z doctor
 
 ```sh
 scripts/uninstall.sh
-# Removes: binary, data dir (with confirmation), shell integration
+# Removes application files only; config, audit, tools, memory and sessions remain.
 ```
 
 ---
@@ -298,6 +303,11 @@ z doctor
 # Show runtime status
 z status
 
+# Initialize and inspect durable local storage
+z setup
+z storage show
+z storage policy
+
 # Show native platform capabilities
 z platform
 
@@ -309,6 +319,12 @@ cd my-project
 z search security
 z search nmap
 z search --category networking
+
+# Explore curated development/security bundles
+z bundle list
+z bundle plan kali-top10
+z bundle plan devsecops
+z bundle plan security-lab
 
 # Inspect a tool before installing
 z info nmap
@@ -360,6 +376,9 @@ z report latest
 # AI analysis of last scan
 z ai analyze
 
+# Launch the operator dashboard
+z ui
+
 # Audit log
 z audit tail          # last 20 events
 z audit tail 50       # last 50 events
@@ -368,6 +387,56 @@ z audit verify        # verify the tamper-evident hash chain
 # Emergency stop
 z lockdown
 ```
+
+---
+
+## AI Provider Setup
+
+Zentrion defaults to a local Ollama-compatible workflow. You can switch to
+OpenAI, Qwen/DashScope-compatible APIs, or any OpenAI-compatible endpoint by
+environment variable. Secrets stay outside project files.
+
+### Local Ollama or Qwen through Ollama
+
+```sh
+ollama pull qwen2.5-coder:7b
+export ZENTRION_AI_PROVIDER=ollama
+export ZENTRION_AI_BASE_URL=http://localhost:11434
+export ZENTRION_AI_MODEL=qwen2.5-coder:7b
+```
+
+### Qwen/DashScope-compatible API
+
+```sh
+export ZENTRION_AI_PROVIDER=qwen
+export DASHSCOPE_API_KEY="sk-..."
+export ZENTRION_AI_MODEL=qwen3-coder-plus
+```
+
+### OpenAI
+
+```sh
+export ZENTRION_AI_PROVIDER=openai
+export OPENAI_API_KEY="sk-..."
+export ZENTRION_AI_MODEL=gpt-4.1-mini
+```
+
+### Any OpenAI-Compatible Endpoint
+
+Use this for LM Studio, llama.cpp servers exposing `/v1/chat/completions`,
+OpenRouter, self-hosted gateways, or enterprise proxies.
+
+```sh
+export ZENTRION_AI_PROVIDER=openai-compatible
+export ZENTRION_AI_PROVIDER_NAME=local-qwen
+export ZENTRION_AI_BASE_URL=http://127.0.0.1:8080/v1
+export ZENTRION_AI_API_KEY=local
+export ZENTRION_AI_MODEL=qwen-local
+```
+
+Agent runs use the same gateway and still pass through redaction, policy and
+tool guardrails. Model choice does not grant filesystem, network or process
+permissions.
 
 ---
 
@@ -384,6 +453,11 @@ z lockdown
 | `z doctor --json` | JSON health report |
 | `z status` | Runtime, project, policy, audit status |
 | `z status --json` | Machine-readable status |
+| `z setup` | Initialize local durable storage and show first-run next steps |
+| `z storage show` | Show config, data, cache, tools, audit, memory and session paths |
+| `z storage init` | Create missing durable storage directories |
+| `z storage doctor` | Check storage path existence and writability |
+| `z storage policy` | Explain what survives upgrade/uninstall |
 | `z platform` | Report native platform capabilities and sandbox levels |
 | `z sbom` | Emit a runtime SBOM-like JSON summary |
 
@@ -473,6 +547,9 @@ Each audit event records: `timestamp`, `actor`, `action`, `resource`, `decision`
 | `z search security` | Search by keyword |
 | `z search --category networking` | Filter by category |
 | `z search --json` | JSON output |
+| `z bundle list` | Show curated workflow bundles |
+| `z bundle show <name>` | Inspect a bundle |
+| `z bundle plan <name>` | Print dry-run install commands for a bundle |
 | `z info <tool>` | Show tool details, permissions, platforms |
 | `z info nmap --version 7.94` | Specific version |
 | `z install <tool>` | Install a tool (checksum verified) |
@@ -546,6 +623,9 @@ Native engines available (no external tools needed):
 | `z ai analyze` | AI analysis of the most recent scan |
 | `z ai privacy` | Show AI privacy status (what goes where) |
 | `z ai status` | Show which AI tier is active (cloud/local/none) |
+| `ZENTRION_AI_PROVIDER=ollama` | Use local Ollama-compatible provider |
+| `ZENTRION_AI_PROVIDER=qwen` | Use Qwen/DashScope-compatible API |
+| `ZENTRION_AI_PROVIDER=openai-compatible` | Use custom `/v1/chat/completions` endpoint |
 | `z ai bom` | AI Bill of Materials — all AI components in the project |
 | `z ai bom --diff` | Show AI component changes since last commit |
 | `z ai bom --check-policy` | Fail if AI components violate policy |
@@ -1722,6 +1802,7 @@ All SDKs use JSON Schema types generated from `schemas/` (single source of truth
 | [03-SYSTEM-ARCHITECTURE.md](docs/03-SYSTEM-ARCHITECTURE.md) | 26-component architecture |
 | [04-CORE-RUNTIME.md](docs/04-CORE-RUNTIME.md) | Core runtime design |
 | [05-CLI-SPEC.md](docs/05-CLI-SPEC.md) | CLI specification |
+| [STORAGE.md](docs/STORAGE.md) | Durable local storage paths and retention |
 
 ### Security
 | Document | Description |

@@ -12,8 +12,8 @@
 pub mod dns;
 pub mod fs;
 pub mod http;
-pub mod platform;
 pub mod phase3;
+pub mod platform;
 pub mod process;
 pub mod sysinfo;
 pub mod tls;

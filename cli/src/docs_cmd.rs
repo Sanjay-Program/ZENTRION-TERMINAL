@@ -19,6 +19,7 @@ const DOC_TOPICS: &[(&str, &str)] = &[
     ("plugins", "plugins.md"),
     ("policies", "policies.md"),
     ("privacy", "privacy.md"),
+    ("storage", "STORAGE.md"),
     ("troubleshooting", "troubleshooting.md"),
     ("release-readiness", "RELEASE_READINESS.md"),
     ("platform-support", "PLATFORM_SUPPORT.md"),
@@ -29,9 +30,20 @@ const DOC_TOPICS: &[(&str, &str)] = &[
 ];
 
 const COMMANDS: &[(&str, &str)] = &[
-    ("version", "Show version, platform, architecture and build type"),
+    (
+        "version",
+        "Show version, platform, architecture and build type",
+    ),
     ("doctor", "Check host, configuration and project health"),
     ("status", "Show runtime, project, policy and audit status"),
+    (
+        "setup",
+        "Initialize durable local storage and first-run paths",
+    ),
+    (
+        "storage",
+        "Inspect local storage paths, retention and health",
+    ),
     ("config", "Inspect or modify configuration"),
     ("init", "Initialize a new Zentrion project"),
     ("project", "Show or validate the current project"),
@@ -46,8 +58,14 @@ const COMMANDS: &[(&str, &str)] = &[
     ("update", "Update one tool, or all tools"),
     ("rollback", "Roll back a tool to its previous version"),
     ("use", "Select which installed version of a tool is active"),
-    ("verify", "Check an installed tool for corruption or missing files"),
-    ("platform", "Report platform, architecture and native capabilities"),
+    (
+        "verify",
+        "Check an installed tool for corruption or missing files",
+    ),
+    (
+        "platform",
+        "Report platform, architecture and native capabilities",
+    ),
     ("engine", "List and inspect native engines"),
     ("scan", "Run a native scan and store a report locally"),
     ("finding", "Show the most recent findings"),
@@ -85,12 +103,19 @@ fn docs_root() -> Option<PathBuf> {
 }
 
 fn topic_path(topic: &str) -> Option<&'static str> {
-    DOC_TOPICS.iter().find(|(name, _)| *name == topic).map(|(_, path)| *path)
+    DOC_TOPICS
+        .iter()
+        .find(|(name, _)| *name == topic)
+        .map(|(_, path)| *path)
 }
 
 fn read_doc(path: &Path) -> ZenResult<String> {
     Ok(fs::read_to_string(path).map_err(|e| {
-        ZenError::new(Area::Fs, 5300, format!("failed to read {}: {e}", path.display()))
+        ZenError::new(
+            Area::Fs,
+            5300,
+            format!("failed to read {}: {e}", path.display()),
+        )
     })?)
 }
 
@@ -111,7 +136,9 @@ fn print_topic(topic: &str) -> ZenResult<()> {
 
 fn score_match(text: &str, terms: &[String]) -> bool {
     let lower = text.to_lowercase();
-    terms.iter().all(|term| lower.contains(&term.to_lowercase()))
+    terms
+        .iter()
+        .all(|term| lower.contains(&term.to_lowercase()))
 }
 
 fn search_docs(terms: &[String]) -> ZenResult<()> {
@@ -123,11 +150,14 @@ fn search_docs(terms: &[String]) -> ZenResult<()> {
     let mut stack = vec![root.clone()];
     while let Some(dir) = stack.pop() {
         for entry in fs::read_dir(&dir).map_err(|e| {
-            ZenError::new(Area::Fs, 5304, format!("failed to read {}: {e}", dir.display()))
+            ZenError::new(
+                Area::Fs,
+                5304,
+                format!("failed to read {}: {e}", dir.display()),
+            )
         })? {
-            let entry = entry.map_err(|e| {
-                ZenError::new(Area::Fs, 5305, format!("failed to read entry: {e}"))
-            })?;
+            let entry = entry
+                .map_err(|e| ZenError::new(Area::Fs, 5305, format!("failed to read entry: {e}")))?;
             let path = entry.path();
             if path.is_dir() {
                 stack.push(path);
@@ -190,7 +220,11 @@ pub fn docs(args: &[String], json: bool) -> ZenResult<()> {
         Some("search") => {
             let terms = args.iter().skip(1).cloned().collect::<Vec<_>>();
             if terms.is_empty() {
-                return Err(ZenError::new(Area::Cfg, 5306, "usage: z docs search <terms...>"));
+                return Err(ZenError::new(
+                    Area::Cfg,
+                    5306,
+                    "usage: z docs search <terms...>",
+                ));
             }
             if json {
                 let root = docs_root().ok_or_else(|| {
@@ -200,7 +234,11 @@ pub fn docs(args: &[String], json: bool) -> ZenResult<()> {
                 let mut stack = vec![root.clone()];
                 while let Some(dir) = stack.pop() {
                     for entry in fs::read_dir(&dir).map_err(|e| {
-                        ZenError::new(Area::Fs, 5308, format!("failed to read {}: {e}", dir.display()))
+                        ZenError::new(
+                            Area::Fs,
+                            5308,
+                            format!("failed to read {}: {e}", dir.display()),
+                        )
                     })? {
                         let entry = entry.map_err(|e| {
                             ZenError::new(Area::Fs, 5309, format!("failed to read entry: {e}"))
@@ -219,7 +257,10 @@ pub fn docs(args: &[String], json: bool) -> ZenResult<()> {
                         }
                     }
                 }
-                println!("{}", serde_json::to_string_pretty(&json!({ "terms": terms, "matches": hits }))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({ "terms": terms, "matches": hits }))?
+                );
             } else {
                 search_docs(&terms)?;
             }
@@ -271,7 +312,10 @@ pub fn commands(json: bool, args: &[String]) -> ZenResult<()> {
         .collect();
 
     if json {
-        println!("{}", serde_json::to_string_pretty(&json!({"commands": rows}))?);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({"commands": rows}))?
+        );
     } else {
         println!("Zentrion command index");
         for row in rows {

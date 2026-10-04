@@ -14,7 +14,7 @@ pub struct ExecResponse {
     pub stderr: String,
 }
 
-/// A client for connecting to the Zentrion daemon via local IPC 
+/// A client for connecting to the Zentrion daemon via local IPC
 /// (Unix domain sockets on Linux, Named Pipes on Windows).
 pub struct ZentrionClient {
     #[allow(dead_code)]

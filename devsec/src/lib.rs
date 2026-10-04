@@ -1,7 +1,7 @@
-pub mod scanner;
+pub mod ai_bom;
 pub mod sast;
 pub mod sbom;
-pub mod ai_bom;
+pub mod scanner;
 
 #[cfg(test)]
 mod tests {
