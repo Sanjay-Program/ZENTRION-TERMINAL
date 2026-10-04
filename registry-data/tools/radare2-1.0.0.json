@@ -1,10 +1,10 @@
 {
   "schema_version": "1",
-  "id": "org.kali.tools.burpsuite",
-  "name": "burpsuite",
-  "display_name": "Burp Suite",
+  "id": "org.kali.tools.radare2",
+  "name": "radare2",
+  "display_name": "Radare2",
   "version": "1.0.0",
-  "description": "Web application security testing proxy and scanner",
+  "description": "Reverse engineering framework and binary analysis toolkit",
   "publisher": {
     "name": "Kali Linux",
     "id": "pub_kali"
@@ -14,16 +14,16 @@
     "cybersecurity"
   ],
   "tags": [
-    "web",
-    "proxy",
-    "scanner"
+    "reverse-engineering",
+    "binary",
+    "debugging"
   ],
   "platforms": [
     {
       "os": "linux",
       "arch": "x86_64",
       "abi": "gnu",
-      "url": "https://example.com/kali/burpsuite.tar.gz",
+      "url": "https://example.com/kali/radare2.tar.gz",
       "sha256": "b5a2c96250612366ea272ffac6d9744aaf4b45aacd96aa7cfcb931ee3b558259",
       "size": 1024,
       "kind": "native"

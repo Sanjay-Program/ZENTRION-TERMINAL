@@ -15,7 +15,8 @@
   ],
   "tags": [
     "sniffing",
-    "network"
+    "network",
+    "packet-analysis"
   ],
   "platforms": [
     {

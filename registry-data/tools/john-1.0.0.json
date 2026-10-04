@@ -2,9 +2,9 @@
   "schema_version": "1",
   "id": "org.kali.tools.john",
   "name": "john",
-  "display_name": "John",
+  "display_name": "John the Ripper",
   "version": "1.0.0",
-  "description": "John the Ripper password cracker",
+  "description": "Password hash auditing and recovery tool",
   "publisher": {
     "name": "Kali Linux",
     "id": "pub_kali"
@@ -15,7 +15,8 @@
   ],
   "tags": [
     "password",
-    "cracking"
+    "cracking",
+    "audit"
   ],
   "platforms": [
     {

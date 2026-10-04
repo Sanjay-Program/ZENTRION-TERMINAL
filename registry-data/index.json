@@ -13,7 +13,8 @@
       ],
       "tags": [
         "scanning",
-        "network"
+        "network",
+        "discovery"
       ],
       "publisher_id": "pub_kali",
       "publisher_name": "Kali Linux",
@@ -25,8 +26,8 @@
       "id": "org.kali.tools.metasploit",
       "name": "metasploit",
       "version": "1.0.0",
-      "display_name": "Metasploit",
-      "description": "Penetration testing software",
+      "display_name": "Metasploit Framework",
+      "description": "Exploit development and penetration testing framework",
       "categories": [
         "cybersecurity"
       ],
@@ -51,7 +52,8 @@
       ],
       "tags": [
         "sniffing",
-        "network"
+        "network",
+        "packet-analysis"
       ],
       "publisher_id": "pub_kali",
       "publisher_name": "Kali Linux",
@@ -63,8 +65,8 @@
       "id": "org.kali.tools.sqlmap",
       "name": "sqlmap",
       "version": "1.0.0",
-      "display_name": "Sqlmap",
-      "description": "Automatic SQL injection and database takeover tool",
+      "display_name": "sqlmap",
+      "description": "Automatic SQL injection detection and testing tool",
       "categories": [
         "cybersecurity"
       ],
@@ -83,14 +85,15 @@
       "id": "org.kali.tools.john",
       "name": "john",
       "version": "1.0.0",
-      "display_name": "John",
-      "description": "John the Ripper password cracker",
+      "display_name": "John the Ripper",
+      "description": "Password hash auditing and recovery tool",
       "categories": [
         "cybersecurity"
       ],
       "tags": [
         "password",
-        "cracking"
+        "cracking",
+        "audit"
       ],
       "publisher_id": "pub_kali",
       "publisher_name": "Kali Linux",
@@ -109,7 +112,8 @@
       ],
       "tags": [
         "wireless",
-        "cracking"
+        "cracking",
+        "audit"
       ],
       "publisher_id": "pub_kali",
       "publisher_name": "Kali Linux",
@@ -122,13 +126,14 @@
       "name": "gobuster",
       "version": "1.0.0",
       "display_name": "Gobuster",
-      "description": "Directory/File, DNS and VHost busting tool",
+      "description": "Directory, DNS and virtual host discovery tool",
       "categories": [
         "cybersecurity"
       ],
       "tags": [
         "web",
-        "bruteforce"
+        "bruteforce",
+        "content-discovery"
       ],
       "publisher_id": "pub_kali",
       "publisher_name": "Kali Linux",
@@ -140,13 +145,14 @@
       "id": "org.kali.tools.burpsuite",
       "name": "burpsuite",
       "version": "1.0.0",
-      "display_name": "Burpsuite",
-      "description": "Web vulnerability scanner",
+      "display_name": "Burp Suite",
+      "description": "Web application security testing proxy and scanner",
       "categories": [
         "cybersecurity"
       ],
       "tags": [
         "web",
+        "proxy",
         "scanner"
       ],
       "publisher_id": "pub_kali",
@@ -160,13 +166,14 @@
       "name": "hydra",
       "version": "1.0.0",
       "display_name": "Hydra",
-      "description": "Network logon cracker",
+      "description": "Network login auditing tool",
       "categories": [
         "cybersecurity"
       ],
       "tags": [
         "password",
-        "bruteforce"
+        "bruteforce",
+        "audit"
       ],
       "publisher_id": "pub_kali",
       "publisher_name": "Kali Linux",
@@ -179,19 +186,540 @@
       "name": "hashcat",
       "version": "1.0.0",
       "display_name": "Hashcat",
-      "description": "World's fastest and most advanced password recovery utility",
+      "description": "Advanced password hash recovery utility",
       "categories": [
         "cybersecurity"
       ],
       "tags": [
         "password",
-        "cracking"
+        "cracking",
+        "gpu"
       ],
       "publisher_id": "pub_kali",
       "publisher_name": "Kali Linux",
       "trust": "community-verified",
       "license": "GPL",
       "manifest": "tools/hashcat-1.0.0.json"
+    },
+    {
+      "id": "org.kali.tools.ffuf",
+      "name": "ffuf",
+      "version": "1.0.0",
+      "display_name": "ffuf",
+      "description": "Fast web fuzzer for content discovery and parameter testing",
+      "categories": [
+        "cybersecurity"
+      ],
+      "tags": [
+        "web",
+        "fuzzing",
+        "content-discovery"
+      ],
+      "publisher_id": "pub_kali",
+      "publisher_name": "Kali Linux",
+      "trust": "community-verified",
+      "license": "GPL",
+      "manifest": "tools/ffuf-1.0.0.json"
+    },
+    {
+      "id": "org.kali.tools.feroxbuster",
+      "name": "feroxbuster",
+      "version": "1.0.0",
+      "display_name": "Feroxbuster",
+      "description": "Recursive content discovery tool for web assessment",
+      "categories": [
+        "cybersecurity"
+      ],
+      "tags": [
+        "web",
+        "content-discovery",
+        "rust"
+      ],
+      "publisher_id": "pub_kali",
+      "publisher_name": "Kali Linux",
+      "trust": "community-verified",
+      "license": "GPL",
+      "manifest": "tools/feroxbuster-1.0.0.json"
+    },
+    {
+      "id": "org.kali.tools.nikto",
+      "name": "nikto",
+      "version": "1.0.0",
+      "display_name": "Nikto",
+      "description": "Web server misconfiguration and exposure scanner",
+      "categories": [
+        "cybersecurity"
+      ],
+      "tags": [
+        "web",
+        "scanner",
+        "misconfiguration"
+      ],
+      "publisher_id": "pub_kali",
+      "publisher_name": "Kali Linux",
+      "trust": "community-verified",
+      "license": "GPL",
+      "manifest": "tools/nikto-1.0.0.json"
+    },
+    {
+      "id": "org.kali.tools.amass",
+      "name": "amass",
+      "version": "1.0.0",
+      "display_name": "OWASP Amass",
+      "description": "Attack surface mapping and external asset discovery",
+      "categories": [
+        "cybersecurity"
+      ],
+      "tags": [
+        "recon",
+        "dns",
+        "attack-surface"
+      ],
+      "publisher_id": "pub_kali",
+      "publisher_name": "Kali Linux",
+      "trust": "community-verified",
+      "license": "GPL",
+      "manifest": "tools/amass-1.0.0.json"
+    },
+    {
+      "id": "org.kali.tools.theharvester",
+      "name": "theharvester",
+      "version": "1.0.0",
+      "display_name": "theHarvester",
+      "description": "Email, subdomain and host intelligence gathering tool",
+      "categories": [
+        "cybersecurity"
+      ],
+      "tags": [
+        "recon",
+        "osint",
+        "dns"
+      ],
+      "publisher_id": "pub_kali",
+      "publisher_name": "Kali Linux",
+      "trust": "community-verified",
+      "license": "GPL",
+      "manifest": "tools/theharvester-1.0.0.json"
+    },
+    {
+      "id": "org.kali.tools.dnsrecon",
+      "name": "dnsrecon",
+      "version": "1.0.0",
+      "display_name": "DNSRecon",
+      "description": "DNS enumeration and reconnaissance utility",
+      "categories": [
+        "cybersecurity"
+      ],
+      "tags": [
+        "recon",
+        "dns",
+        "enumeration"
+      ],
+      "publisher_id": "pub_kali",
+      "publisher_name": "Kali Linux",
+      "trust": "community-verified",
+      "license": "GPL",
+      "manifest": "tools/dnsrecon-1.0.0.json"
+    },
+    {
+      "id": "org.kali.tools.masscan",
+      "name": "masscan",
+      "version": "1.0.0",
+      "display_name": "Masscan",
+      "description": "High-speed internet-scale port scanner",
+      "categories": [
+        "cybersecurity"
+      ],
+      "tags": [
+        "scanning",
+        "network",
+        "discovery"
+      ],
+      "publisher_id": "pub_kali",
+      "publisher_name": "Kali Linux",
+      "trust": "community-verified",
+      "license": "GPL",
+      "manifest": "tools/masscan-1.0.0.json"
+    },
+    {
+      "id": "org.kali.tools.rustscan",
+      "name": "rustscan",
+      "version": "1.0.0",
+      "display_name": "RustScan",
+      "description": "Fast port scanner with Nmap handoff workflow",
+      "categories": [
+        "cybersecurity"
+      ],
+      "tags": [
+        "scanning",
+        "network",
+        "rust"
+      ],
+      "publisher_id": "pub_kali",
+      "publisher_name": "Kali Linux",
+      "trust": "community-verified",
+      "license": "GPL",
+      "manifest": "tools/rustscan-1.0.0.json"
+    },
+    {
+      "id": "org.kali.tools.nuclei",
+      "name": "nuclei",
+      "version": "1.0.0",
+      "display_name": "Nuclei",
+      "description": "Template-driven vulnerability scanner",
+      "categories": [
+        "cybersecurity"
+      ],
+      "tags": [
+        "scanner",
+        "templates",
+        "vulnerability"
+      ],
+      "publisher_id": "pub_kali",
+      "publisher_name": "Kali Linux",
+      "trust": "community-verified",
+      "license": "GPL",
+      "manifest": "tools/nuclei-1.0.0.json"
+    },
+    {
+      "id": "org.kali.tools.katana",
+      "name": "katana",
+      "version": "1.0.0",
+      "display_name": "Katana",
+      "description": "Web crawler for discovery and security testing workflows",
+      "categories": [
+        "cybersecurity"
+      ],
+      "tags": [
+        "web",
+        "crawler",
+        "recon"
+      ],
+      "publisher_id": "pub_kali",
+      "publisher_name": "Kali Linux",
+      "trust": "community-verified",
+      "license": "GPL",
+      "manifest": "tools/katana-1.0.0.json"
+    },
+    {
+      "id": "org.kali.tools.httpx",
+      "name": "httpx",
+      "version": "1.0.0",
+      "display_name": "httpx",
+      "description": "HTTP probing and service fingerprinting toolkit",
+      "categories": [
+        "cybersecurity"
+      ],
+      "tags": [
+        "web",
+        "fingerprinting",
+        "recon"
+      ],
+      "publisher_id": "pub_kali",
+      "publisher_name": "Kali Linux",
+      "trust": "community-verified",
+      "license": "GPL",
+      "manifest": "tools/httpx-1.0.0.json"
+    },
+    {
+      "id": "org.kali.tools.subfinder",
+      "name": "subfinder",
+      "version": "1.0.0",
+      "display_name": "Subfinder",
+      "description": "Passive subdomain discovery tool",
+      "categories": [
+        "cybersecurity"
+      ],
+      "tags": [
+        "recon",
+        "dns",
+        "subdomain"
+      ],
+      "publisher_id": "pub_kali",
+      "publisher_name": "Kali Linux",
+      "trust": "community-verified",
+      "license": "GPL",
+      "manifest": "tools/subfinder-1.0.0.json"
+    },
+    {
+      "id": "org.kali.tools.whatweb",
+      "name": "whatweb",
+      "version": "1.0.0",
+      "display_name": "WhatWeb",
+      "description": "Web technology fingerprinting tool",
+      "categories": [
+        "cybersecurity"
+      ],
+      "tags": [
+        "web",
+        "fingerprinting",
+        "recon"
+      ],
+      "publisher_id": "pub_kali",
+      "publisher_name": "Kali Linux",
+      "trust": "community-verified",
+      "license": "GPL",
+      "manifest": "tools/whatweb-1.0.0.json"
+    },
+    {
+      "id": "org.kali.tools.zaproxy",
+      "name": "zaproxy",
+      "version": "1.0.0",
+      "display_name": "OWASP ZAP",
+      "description": "Web application security proxy and scanner",
+      "categories": [
+        "cybersecurity"
+      ],
+      "tags": [
+        "web",
+        "proxy",
+        "scanner"
+      ],
+      "publisher_id": "pub_kali",
+      "publisher_name": "Kali Linux",
+      "trust": "community-verified",
+      "license": "GPL",
+      "manifest": "tools/zaproxy-1.0.0.json"
+    },
+    {
+      "id": "org.kali.tools.trivy",
+      "name": "trivy",
+      "version": "1.0.0",
+      "display_name": "Trivy",
+      "description": "Container, filesystem and IaC vulnerability scanner",
+      "categories": [
+        "cybersecurity"
+      ],
+      "tags": [
+        "devsecops",
+        "container",
+        "scanner"
+      ],
+      "publisher_id": "pub_kali",
+      "publisher_name": "Kali Linux",
+      "trust": "community-verified",
+      "license": "GPL",
+      "manifest": "tools/trivy-1.0.0.json"
+    },
+    {
+      "id": "org.kali.tools.gitleaks",
+      "name": "gitleaks",
+      "version": "1.0.0",
+      "display_name": "Gitleaks",
+      "description": "Secret scanning for Git repositories and filesystems",
+      "categories": [
+        "cybersecurity"
+      ],
+      "tags": [
+        "devsecops",
+        "secrets",
+        "scanner"
+      ],
+      "publisher_id": "pub_kali",
+      "publisher_name": "Kali Linux",
+      "trust": "community-verified",
+      "license": "GPL",
+      "manifest": "tools/gitleaks-1.0.0.json"
+    },
+    {
+      "id": "org.kali.tools.semgrep",
+      "name": "semgrep",
+      "version": "1.0.0",
+      "display_name": "Semgrep",
+      "description": "Static analysis for code and security rules",
+      "categories": [
+        "cybersecurity"
+      ],
+      "tags": [
+        "devsecops",
+        "sast",
+        "scanner"
+      ],
+      "publisher_id": "pub_kali",
+      "publisher_name": "Kali Linux",
+      "trust": "community-verified",
+      "license": "GPL",
+      "manifest": "tools/semgrep-1.0.0.json"
+    },
+    {
+      "id": "org.kali.tools.syft",
+      "name": "syft",
+      "version": "1.0.0",
+      "display_name": "Syft",
+      "description": "Software bill of materials generator",
+      "categories": [
+        "cybersecurity"
+      ],
+      "tags": [
+        "devsecops",
+        "sbom",
+        "supply-chain"
+      ],
+      "publisher_id": "pub_kali",
+      "publisher_name": "Kali Linux",
+      "trust": "community-verified",
+      "license": "GPL",
+      "manifest": "tools/syft-1.0.0.json"
+    },
+    {
+      "id": "org.kali.tools.grype",
+      "name": "grype",
+      "version": "1.0.0",
+      "display_name": "Grype",
+      "description": "Vulnerability scanner for container images and SBOMs",
+      "categories": [
+        "cybersecurity"
+      ],
+      "tags": [
+        "devsecops",
+        "sbom",
+        "scanner"
+      ],
+      "publisher_id": "pub_kali",
+      "publisher_name": "Kali Linux",
+      "trust": "community-verified",
+      "license": "GPL",
+      "manifest": "tools/grype-1.0.0.json"
+    },
+    {
+      "id": "org.kali.tools.cosign",
+      "name": "cosign",
+      "version": "1.0.0",
+      "display_name": "Cosign",
+      "description": "Container signing, verification and supply-chain attestations",
+      "categories": [
+        "cybersecurity"
+      ],
+      "tags": [
+        "devsecops",
+        "signing",
+        "supply-chain"
+      ],
+      "publisher_id": "pub_kali",
+      "publisher_name": "Kali Linux",
+      "trust": "community-verified",
+      "license": "GPL",
+      "manifest": "tools/cosign-1.0.0.json"
+    },
+    {
+      "id": "org.kali.tools.ghidra",
+      "name": "ghidra",
+      "version": "1.0.0",
+      "display_name": "Ghidra",
+      "description": "Reverse engineering and binary analysis suite",
+      "categories": [
+        "cybersecurity"
+      ],
+      "tags": [
+        "reverse-engineering",
+        "binary",
+        "analysis"
+      ],
+      "publisher_id": "pub_kali",
+      "publisher_name": "Kali Linux",
+      "trust": "community-verified",
+      "license": "GPL",
+      "manifest": "tools/ghidra-1.0.0.json"
+    },
+    {
+      "id": "org.kali.tools.radare2",
+      "name": "radare2",
+      "version": "1.0.0",
+      "display_name": "Radare2",
+      "description": "Reverse engineering framework and binary analysis toolkit",
+      "categories": [
+        "cybersecurity"
+      ],
+      "tags": [
+        "reverse-engineering",
+        "binary",
+        "debugging"
+      ],
+      "publisher_id": "pub_kali",
+      "publisher_name": "Kali Linux",
+      "trust": "community-verified",
+      "license": "GPL",
+      "manifest": "tools/radare2-1.0.0.json"
+    },
+    {
+      "id": "org.kali.tools.binwalk",
+      "name": "binwalk",
+      "version": "1.0.0",
+      "display_name": "Binwalk",
+      "description": "Firmware extraction and analysis tool",
+      "categories": [
+        "cybersecurity"
+      ],
+      "tags": [
+        "reverse-engineering",
+        "firmware",
+        "analysis"
+      ],
+      "publisher_id": "pub_kali",
+      "publisher_name": "Kali Linux",
+      "trust": "community-verified",
+      "license": "GPL",
+      "manifest": "tools/binwalk-1.0.0.json"
+    },
+    {
+      "id": "org.kali.tools.yara",
+      "name": "yara",
+      "version": "1.0.0",
+      "display_name": "YARA",
+      "description": "Pattern matching for malware research and file classification",
+      "categories": [
+        "cybersecurity"
+      ],
+      "tags": [
+        "malware-analysis",
+        "rules",
+        "scanner"
+      ],
+      "publisher_id": "pub_kali",
+      "publisher_name": "Kali Linux",
+      "trust": "community-verified",
+      "license": "GPL",
+      "manifest": "tools/yara-1.0.0.json"
+    },
+    {
+      "id": "org.kali.tools.volatility3",
+      "name": "volatility3",
+      "version": "1.0.0",
+      "display_name": "Volatility 3",
+      "description": "Memory forensics framework",
+      "categories": [
+        "cybersecurity"
+      ],
+      "tags": [
+        "forensics",
+        "memory",
+        "incident-response"
+      ],
+      "publisher_id": "pub_kali",
+      "publisher_name": "Kali Linux",
+      "trust": "community-verified",
+      "license": "GPL",
+      "manifest": "tools/volatility3-1.0.0.json"
+    },
+    {
+      "id": "org.kali.tools.autopsy",
+      "name": "autopsy",
+      "version": "1.0.0",
+      "display_name": "Autopsy",
+      "description": "Digital forensics platform",
+      "categories": [
+        "cybersecurity"
+      ],
+      "tags": [
+        "forensics",
+        "timeline",
+        "incident-response"
+      ],
+      "publisher_id": "pub_kali",
+      "publisher_name": "Kali Linux",
+      "trust": "community-verified",
+      "license": "GPL",
+      "manifest": "tools/autopsy-1.0.0.json"
     }
   ]
 }

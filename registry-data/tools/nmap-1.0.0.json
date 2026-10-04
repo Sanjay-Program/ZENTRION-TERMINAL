@@ -15,7 +15,8 @@
   ],
   "tags": [
     "scanning",
-    "network"
+    "network",
+    "discovery"
   ],
   "platforms": [
     {

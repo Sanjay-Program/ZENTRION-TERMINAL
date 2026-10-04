@@ -4,7 +4,7 @@
   "name": "hydra",
   "display_name": "Hydra",
   "version": "1.0.0",
-  "description": "Network logon cracker",
+  "description": "Network login auditing tool",
   "publisher": {
     "name": "Kali Linux",
     "id": "pub_kali"
@@ -15,7 +15,8 @@
   ],
   "tags": [
     "password",
-    "bruteforce"
+    "bruteforce",
+    "audit"
   ],
   "platforms": [
     {

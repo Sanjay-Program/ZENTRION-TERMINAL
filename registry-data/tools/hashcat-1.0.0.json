@@ -4,7 +4,7 @@
   "name": "hashcat",
   "display_name": "Hashcat",
   "version": "1.0.0",
-  "description": "World's fastest and most advanced password recovery utility",
+  "description": "Advanced password hash recovery utility",
   "publisher": {
     "name": "Kali Linux",
     "id": "pub_kali"
@@ -15,7 +15,8 @@
   ],
   "tags": [
     "password",
-    "cracking"
+    "cracking",
+    "gpu"
   ],
   "platforms": [
     {

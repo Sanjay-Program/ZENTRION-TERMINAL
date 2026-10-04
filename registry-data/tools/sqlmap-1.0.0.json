@@ -2,9 +2,9 @@
   "schema_version": "1",
   "id": "org.kali.tools.sqlmap",
   "name": "sqlmap",
-  "display_name": "Sqlmap",
+  "display_name": "sqlmap",
   "version": "1.0.0",
-  "description": "Automatic SQL injection and database takeover tool",
+  "description": "Automatic SQL injection detection and testing tool",
   "publisher": {
     "name": "Kali Linux",
     "id": "pub_kali"

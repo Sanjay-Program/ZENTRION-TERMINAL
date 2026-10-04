@@ -4,7 +4,7 @@
   "name": "gobuster",
   "display_name": "Gobuster",
   "version": "1.0.0",
-  "description": "Directory/File, DNS and VHost busting tool",
+  "description": "Directory, DNS and virtual host discovery tool",
   "publisher": {
     "name": "Kali Linux",
     "id": "pub_kali"
@@ -15,7 +15,8 @@
   ],
   "tags": [
     "web",
-    "bruteforce"
+    "bruteforce",
+    "content-discovery"
   ],
   "platforms": [
     {
