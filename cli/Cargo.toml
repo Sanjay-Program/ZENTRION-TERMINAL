@@ -21,7 +21,7 @@ z-registry = { path = "../registry" }
 z-tool = { path = "../nativetool" }
 z-version = { path = "../version" }
 z-audit = { path = "../audit" }
-z-identity = { path = "../identity" }
+z-identity = { version = "0.1.0", path = "../identity" }
 z-projects = { path = "../projects" }
 clap.workspace = true
 serde.workspace = true
@@ -31,3 +31,10 @@ log.workspace = true
 tokio.workspace = true
 tui = { path = "../tui" }
 agents = { path = "../agents" }
+devsec = { version = "0.1.0", path = "../devsec" }
+mcp = { version = "0.1.0", path = "../mcp" }
+plugin = { version = "0.1.0", path = "../plugin" }
+enterprise = { version = "0.1.0", path = "../enterprise" }
+bundled = { version = "0.1.0", path = "../bundled" }
+update = { version = "0.1.0", path = "../update" }
+daemon = { version = "0.1.0", path = "../daemon" }

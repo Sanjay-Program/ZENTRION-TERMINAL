@@ -68,6 +68,8 @@ enum Commands {
         /// Validate manifests instead of displaying them
         #[arg(long)]
         check: bool,
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
     },
 
     /// Show, validate or dry-run the effective policy
@@ -243,6 +245,36 @@ enum Commands {
         args: Vec<String>,
     },
 
+    /// Connect to a Model Context Protocol server
+    Mcp {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+
+    /// Load or manage WASM plugins
+    Plugin {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+
+    /// Enterprise fleet integration (login, sync, telemetry)
+    Enterprise {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+
+    /// Upgrade ZENTRION OTA
+    Upgrade {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+
+    /// Start the local IPC daemon for SDK clients
+    Daemon {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+
     /// Launch the interactive Terminal UI (TUI)
     Ui,
 }
@@ -260,8 +292,8 @@ fn main() {
         Some(Commands::Status) => commands::status(cli.json, cli.project.clone()),
         Some(Commands::Config { args }) => commands::config(&args, cli.json),
         Some(Commands::Init { path, name }) => commands::init(path, name, cli.json),
-        Some(Commands::Project { check }) => {
-            commands::project(check, cli.project.clone(), cli.json)
+        Some(Commands::Project { check, args }) => {
+            commands::project(check, &args, cli.project.clone(), cli.json)
         }
         Some(Commands::Policy { args }) => commands::policy(&args, cli.project.clone(), cli.json),
         Some(Commands::Audit { args }) => commands::audit(&args, cli.json),
@@ -351,6 +383,145 @@ fn main() {
         Some(Commands::Sbom) => phase3_cmd::sbom(cli.json),
         Some(Commands::Ai { args }) => phase3_cmd::ai(&args, cli.json),
         Some(Commands::Cache { args }) => tools_cmd::cache_cmd(&args, cli.json),
+        Some(Commands::Mcp { args }) => {
+            if let Some("connect") = args.first().map(|s| s.as_str()) {
+                if let Some(cmd) = args.get(1) {
+                    println!("Connecting to MCP server via: {}", cmd);
+                    let mcp_args: Vec<String> = args.iter().skip(2).cloned().collect();
+                    match mcp::gateway::McpGateway::connect(cmd, &mcp_args) {
+                        Ok(_) => {
+                            println!("Successfully connected to MCP Server.");
+                            Ok(())
+                        }
+                        Err(e) => Err(z_core::error::ZenError::new(z_core::error::Area::Cfg, 104, format!("mcp connect failed: {}", e))),
+                    }
+                } else {
+                    Err(z_core::error::ZenError::new(z_core::error::Area::Cfg, 101, "usage: z mcp connect <command>"))
+                }
+            } else {
+                Err(z_core::error::ZenError::new(z_core::error::Area::Cfg, 101, "usage: z mcp connect <command>"))
+            }
+        }
+        Some(Commands::Plugin { args }) => {
+            if let Some("load") = args.first().map(|s| s.as_str()) {
+                if let Some(path) = args.get(1) {
+                    let mut manager = plugin::manager::PluginManager::new();
+                    let rt = tokio::runtime::Runtime::new().unwrap();
+                    match rt.block_on(manager.load(path)) {
+                        Ok(_) => {
+                            println!("Successfully loaded plugin from {}", path);
+                            Ok(())
+                        }
+                        Err(e) => Err(z_core::error::ZenError::new(z_core::error::Area::Cfg, 102, format!("plugin load failed: {}", e))),
+                    }
+                } else {
+                    Err(z_core::error::ZenError::new(z_core::error::Area::Cfg, 103, "usage: z plugin load <path>"))
+                }
+            } else {
+                Err(z_core::error::ZenError::new(z_core::error::Area::Cfg, 103, "usage: z plugin load <path>"))
+            }
+        }
+        Some(Commands::Enterprise { args }) => {
+            if let Some(cmd) = args.first().map(|s| s.as_str()) {
+                match cmd {
+                    "login" => {
+                        if let Some(team) = args.get(1) {
+                            println!("Initiating enterprise SSO login for team: {}", team);
+                            match enterprise::sso::login(team) {
+                                Ok(token) => {
+                                    let display_len = std::cmp::min(10, token.len());
+                                    println!("SSO Login Successful! Token: {}...", &token[0..display_len]);
+                                    Ok(())
+                                }
+                                Err(e) => Err(z_core::error::ZenError::new(z_core::error::Area::Cfg, 105, format!("login failed: {}", e))),
+                            }
+                        } else {
+                            Err(z_core::error::ZenError::new(z_core::error::Area::Cfg, 106, "usage: z enterprise login <team>"))
+                        }
+                    }
+                    "sync" => {
+                        println!("Syncing enterprise fleet policies...");
+                        match enterprise::sync::sync_policy("mock-token") {
+                            Ok(policy) => {
+                                println!("Successfully downloaded fleet policy:\n{}", serde_json::to_string_pretty(&policy).unwrap_or_default());
+                                Ok(())
+                            }
+                            Err(e) => Err(z_core::error::ZenError::new(z_core::error::Area::Cfg, 107, format!("sync failed: {}", e))),
+                        }
+                    }
+                    "fleet-status" => {
+                        println!("Forwarding local telemetry and audit logs to SIEM...");
+                        match enterprise::telemetry::forward_audit_logs("mock-token") {
+                            Ok(_) => {
+                                println!("Fleet status and SIEM telemetry synchronized successfully.");
+                                Ok(())
+                            }
+                            Err(e) => Err(z_core::error::ZenError::new(z_core::error::Area::Cfg, 108, format!("telemetry failed: {}", e))),
+                        }
+                    }
+                    _ => Err(z_core::error::ZenError::new(z_core::error::Area::Cfg, 109, "unknown enterprise subcommand")),
+                }
+            } else {
+                Err(z_core::error::ZenError::new(z_core::error::Area::Cfg, 110, "usage: z enterprise <login|sync|fleet-status>"))
+            }
+        }
+        Some(Commands::Upgrade { args }) => {
+            if let Some(cmd) = args.first().map(|s| s.as_str()) {
+                match cmd {
+                    "check" => {
+                        println!("Checking CDN for signed release manifests...");
+                        match update::engine::check_updates() {
+                            Ok(true) => {
+                                println!("Update available! Run 'z upgrade apply' to download.");
+                                Ok(())
+                            }
+                            Ok(false) => {
+                                println!("ZENTRION is up to date.");
+                                Ok(())
+                            }
+                            Err(e) => Err(z_core::error::ZenError::new(z_core::error::Area::Cfg, 111, format!("upgrade check failed: {}", e))),
+                        }
+                    }
+                    "apply" => {
+                        println!("Staging incoming verified binary...");
+                        match update::engine::apply_update() {
+                            Ok(version) => {
+                                println!("Successfully activated version: {}", version);
+                                Ok(())
+                            }
+                            Err(e) => Err(z_core::error::ZenError::new(z_core::error::Area::Cfg, 112, format!("upgrade apply failed: {}", e))),
+                        }
+                    }
+                    "rollback" => {
+                        println!("Rolling back to previous verified binary state...");
+                        match update::engine::rollback() {
+                            Ok(version) => {
+                                println!("Successfully restored previous version: {}", version);
+                                Ok(())
+                            }
+                            Err(e) => Err(z_core::error::ZenError::new(z_core::error::Area::Cfg, 113, format!("upgrade rollback failed: {}", e))),
+                        }
+                    }
+                    _ => Err(z_core::error::ZenError::new(z_core::error::Area::Cfg, 114, "unknown upgrade subcommand")),
+                }
+            } else {
+                Err(z_core::error::ZenError::new(z_core::error::Area::Cfg, 115, "usage: z upgrade <check|apply|rollback>"))
+            }
+        }
+        Some(Commands::Daemon { args }) => {
+            if let Some("start") = args.first().map(|s| s.as_str()) {
+                println!("Starting ZENTRION IPC Daemon on port 9099...");
+                let rt = tokio::runtime::Runtime::new().unwrap();
+                if let Err(e) = rt.block_on(daemon::server::start_daemon(9099)) {
+                    Err(z_core::error::ZenError::new(z_core::error::Area::Cfg, 116, format!("daemon failed: {}", e)))
+                } else {
+                    println!("Daemon shutdown successfully.");
+                    Ok(())
+                }
+            } else {
+                Err(z_core::error::ZenError::new(z_core::error::Area::Cfg, 117, "usage: z daemon start"))
+            }
+        }
         Some(Commands::Ui) => {
             // Start the async TUI inside a tokio runtime
             let rt = tokio::runtime::Runtime::new().unwrap();

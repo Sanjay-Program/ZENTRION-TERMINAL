@@ -1,8 +1,9 @@
 //! z-identity — actor identity (Phase 1 §32, 04-CORE-RUNTIME).
 //!
 //! Every request must carry an identity. Phase 1 resolves the local user
-//! identity (no network, no accounts). Agent/plugin/MCP identities exist as
 //! types for future phases but are NOT creatable here.
+
+pub mod vault;
 
 use serde::{Deserialize, Serialize};
 use z_core::error::{Area, ZenError, ZenResult};

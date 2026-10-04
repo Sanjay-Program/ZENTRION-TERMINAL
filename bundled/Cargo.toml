@@ -1,0 +1,13 @@
+[package]
+name = "bundled"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+async-trait = "0.1.92"
+reqwest = "0.13.5"
+tokio = { workspace = true, features = ["full"] }

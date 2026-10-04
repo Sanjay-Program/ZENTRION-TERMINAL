@@ -312,6 +312,19 @@ pub fn config(args: &[String], json: bool) -> ZenResult<()> {
             )
             .with_remediation("Settable keys: log_level, telemetry_enabled"))
         }
+        Some("set-secret") => {
+            let key = args
+                .get(1)
+                .ok_or_else(|| ZenError::new(Area::Cfg, 22, "usage: z config set-secret <key> <value>"))?;
+            let value = args
+                .get(2)
+                .ok_or_else(|| ZenError::new(Area::Cfg, 23, "usage: z config set-secret <key> <value>"))?;
+                
+            z_identity::vault::set_secret(key, value)
+                .map_err(|e| ZenError::new(Area::Cfg, 29, format!("failed to store secret: {}", e)))?;
+            println!("Secret '{}' successfully stored in the AES-256 encrypted vault.", key);
+            Ok(())
+        }
         Some("path") => {
             println!(
                 "{}",
@@ -425,7 +438,43 @@ pub fn init(path: Option<PathBuf>, name: Option<String>, json: bool) -> ZenResul
 }
 
 /// `z project [check]` — display or validate the current project.
-pub fn project(check: bool, project: Option<PathBuf>, json: bool) -> ZenResult<()> {
+pub fn project(check: bool, args: &[String], project: Option<PathBuf>, json: bool) -> ZenResult<()> {
+    if let Some("scan") = args.first().map(|s| s.as_str()) {
+        let root = project.unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+        println!("Running Developer Security pipeline on {}...", root.display());
+        
+        let mut results = serde_json::json!({});
+        let manifest_path = root.join("Cargo.toml");
+        let content = if manifest_path.exists() {
+            std::fs::read_to_string(&manifest_path).unwrap_or_default()
+        } else {
+            String::new()
+        };
+
+        // 1. Secret Scanning
+        let secrets = devsec::scanner::scan_for_secrets(&content);
+        println!("  [Secrets] Found {} potential hardcoded secrets", secrets.len());
+        results["secrets"] = serde_json::json!(secrets);
+        
+        // 2. SAST Scanning
+        let sast = devsec::sast::check_dangerous_patterns(&content);
+        println!("  [SAST]    Found {} dangerous patterns", sast.len());
+        results["sast"] = serde_json::json!(sast);
+        
+        // 3. SBOM Generation
+        if let Ok(sbom) = devsec::sbom::generate_sbom(&content) {
+            println!("  [SBOM]    Generated SBOM");
+            results["sbom"] = serde_json::json!(sbom);
+        }
+        
+        if json {
+            println!("{}", serde_json::to_string_pretty(&results)?);
+        } else {
+            println!("Project scan complete.");
+        }
+        return Ok(());
+    }
+
     let rt = init_runtime(project)?;
     let p = rt.project.as_ref().ok_or_else(|| {
         ZenError::new(
@@ -693,6 +742,16 @@ pub fn run(
         resource: program.clone(),
         reason: Some("z run".into()),
     };
+
+    let registry = bundled::registry::BundledRegistry::new();
+    if let Some(tool) = registry.get(&program) {
+        println!("Executing safe native bundled tool: {}", program);
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        if let Err(e) = rt.block_on(tool.execute(&args)) {
+            return Err(z_core::error::ZenError::new(z_core::error::Area::Exe, 120, format!("bundled tool failed: {}", e)));
+        }
+        return Ok(());
+    }
 
     let result = broker.execute_process(&req, &program, &args, approve)?;
 

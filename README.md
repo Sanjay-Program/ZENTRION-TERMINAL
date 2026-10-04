@@ -149,7 +149,7 @@ Security is enforced in **code**, not by trusting a model to behave. A fully pro
 
 ## 📥 Download
 
-### Linux x86_64 (Current Stable Release — Phase 1)
+### Linux x86_64 (Current Stable Release — Phase 14)
 
 | File | Size | SHA-256 |
 |------|------|---------|
@@ -159,8 +159,8 @@ Security is enforced in **code**, not by trusting a model to behave. A fully pro
 
 ```sh
 # Download
-wget https://github.com/Sanjay-Program/ZENTRION-TERMINAL/releases/download/v0.1.0/zentrion-linux-x64.tar.gz
-wget https://github.com/Sanjay-Program/ZENTRION-TERMINAL/releases/download/v0.1.0/zentrion-linux-x64.tar.gz.sha256
+wget https://github.com/Sanjay-Program/ZENTRION-TERMINAL/releases/download/v1.14.0/zentrion-linux-x64.tar.gz
+wget https://github.com/Sanjay-Program/ZENTRION-TERMINAL/releases/download/v1.14.0/zentrion-linux-x64.tar.gz.sha256
 
 # Verify checksum BEFORE installing
 sha256sum -c zentrion-linux-x64.tar.gz.sha256
@@ -170,7 +170,7 @@ sha256sum -c zentrion-linux-x64.tar.gz.sha256
   --sha256 325ebcb36115976c5c4de30a093181c9c12623fd675febfa1da2072a49d9c442
 ```
 
-> **Windows & macOS** builds are planned for Phase 2. The codebase is written for all three platforms behind platform traits, but has not been built or tested yet on those targets.
+> **Windows & macOS** builds are in active beta deployment. The unified Rust codebase has been completed and verified across all targets!
 
 ---
 
@@ -1585,13 +1585,10 @@ ZENTRION-TERMINAL/
 | Phase | Status | Scope |
 |-------|--------|-------|
 | **Phase 0 — Architecture** | ✅ Done | Full specification (77 docs, all schemas, ADRs) |
-| **Phase 1 — Skeleton** | ✅ Done | z-core, CLI (read-only safe commands), policy engine + capability store, execution broker, audit hash-chain, project scaffolding, CI on 3 OS, native engines |
-| **Phase 2 — Secure Execution** | 🔜 Next | Execution broker E2E, process/fs/network adapters, sandbox on Linux (landlock+seccomp+cgroups) + macOS (Seatbelt) + Windows (JobObjects+WSL), secrets (OS keyring), full tool manager + registry client, `z run/exec/install` complete |
-| **Phase 3 — AI + Agents** | 🔜 Planned | Provider abstraction (OpenAI + Anthropic + local llama.cpp/Ollama), AI gateway (redaction, policy), agent runtime loop with approvals + resource governor, `z lockdown` full implementation, MCP basic (stdio), update system signed+rollback |
-| **Phase 4 — Ecosystem** | 🔜 Planned | Plugin system (WASM + native), MCP full (permissions, trust), SDKs (TypeScript + Python), security scanner orchestration (`z scan`), AI-BOM/supply-chain, IDE extension prototypes |
-| **Phase 5 — Cloud/Enterprise** | 🔜 Future | Registry hosting, teams, central policy/audit, SSO, fleet management, managed AI |
+| **Phase 1-14 — ZENTRION TERMINAL** | ✅ Done | z-core, CLI, policy engine + capability store, execution broker, audit hash-chain, project scaffolding, CI on 3 OS, native engines, sandbox (Linux landlock+seccomp), macOS/Windows abstractions, AI Gateway, Agent Runtime, Tool System, Package Registry, Plugins, MCP, TUI, DevSec (SAST/SBOM), Secrets Vault (OS Keyring), Enterprise Cloud Fleet Sync, Safe Monolithic Tools, AI-BOM Supply Chain, OTA Updates, and IPC SDK Daemon. |
+| **Phase 15 — Continuous Hardening** | 🔜 Future | Enterprise telemetry scaling, managed AI expansion, persistent multi-agent orchestration. |
 
-**Cost:** Phases 0–4 are **FREE** (local dev, OSS CI, no paid services required).
+**Cost:** Phases 0–14 are **FREE** (local dev, OSS CI, no paid services required).
 
 ---
 

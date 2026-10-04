@@ -270,6 +270,26 @@ pub fn ai(args: &[String], json_out: bool) -> ZenResult<()> {
             }
             Ok(())
         }
+        Some("bom") => {
+            let project = args.get(1).map(|s| s.as_str()).unwrap_or("current-project");
+            match devsec::ai_bom::generate_ai_bom(project) {
+                Ok(bom) => {
+                    if json_out {
+                        println!("{}", serde_json::to_string_pretty(&bom).unwrap_or_default());
+                    } else {
+                        println!("AI-BOM generated for project '{}' at {}", bom.project_name, bom.timestamp);
+                        println!("Total Components: {}", bom.components.len());
+                        for c in &bom.components {
+                            println!("  - [{}] {} (Provider: {})", c.component_type, c.name, c.provider.as_deref().unwrap_or("local"));
+                        }
+                    }
+                }
+                Err(e) => {
+                    return Err(ZenError::new(Area::Cfg, 5210, format!("failed to generate AI-BOM: {}", e)));
+                }
+            }
+            Ok(())
+        }
         Some("auto") => {
             let goal = args.get(1..).unwrap_or(&[]).join(" ");
             if goal.is_empty() {
