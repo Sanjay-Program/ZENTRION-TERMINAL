@@ -3,18 +3,36 @@
   "$id": "https://zentrion.dev/schemas/project-v1.json",
   "title": "Zentrion Project Manifest v1",
   "type": "object",
-  "required": ["apiVersion", "kind", "metadata"],
+  "required": [
+    "apiVersion",
+    "kind",
+    "metadata"
+  ],
   "additionalProperties": false,
   "properties": {
-    "apiVersion": {"const": "zentrion.project/v1"},
-    "kind": {"const": "Project"},
+    "apiVersion": {
+      "const": "zentrion.project/v1"
+    },
+    "kind": {
+      "const": "Project"
+    },
     "metadata": {
       "type": "object",
-      "required": ["name", "version"],
+      "required": [
+        "name",
+        "version"
+      ],
       "properties": {
-        "name": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-_]*$"},
-        "version": {"type": "string"},
-        "description": {"type": "string"}
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-_]*$"
+        },
+        "version": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        }
       },
       "additionalProperties": false
     },
@@ -22,28 +40,119 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name"],
+        "required": [
+          "name"
+        ],
         "properties": {
-          "name": {"type": "string"},
-          "version": {"type": "string"}
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
         }
       }
     },
-    "tools": {"type": "object", "properties": {"include": {"type": "string"}}},
-    "ai": {"type": "object", "properties": {"include": {"type": "string"}}},
-    "agents": {"type": "array", "items": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string"}, "policy_inline_or_ref": {"type": "string"}}}},
-    "mcp": {"type": "object", "properties": {"servers": {"type": "array", "items": {"type": "string"}}}},
-    "permissions": {"type": "object", "properties": {"include": {"type": "string"}}},
-    "secrets": {"type": "object", "properties": {"include": {"type": "string"}}},
-    "security": {"type": "object", "properties": {"policy": {"type": "string"}}},
-    "environment": {"type": "object", "properties": {"include": {"type": "string"}}},
+    "tools": {
+      "type": "object",
+      "properties": {
+        "include": {
+          "type": "string"
+        }
+      }
+    },
+    "ai": {
+      "type": "object",
+      "properties": {
+        "include": {
+          "type": "string"
+        }
+      }
+    },
+    "agents": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "policy_inline_or_ref": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "mcp": {
+      "type": "object",
+      "properties": {
+        "servers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "permissions": {
+      "type": "object",
+      "properties": {
+        "include": {
+          "type": "string"
+        }
+      }
+    },
+    "secrets": {
+      "type": "object",
+      "properties": {
+        "include": {
+          "type": "string"
+        }
+      }
+    },
+    "security": {
+      "type": "object",
+      "properties": {
+        "policy": {
+          "type": "string"
+        }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "properties": {
+        "include": {
+          "type": "string"
+        }
+      }
+    },
     "platforms": {
       "type": "object",
       "properties": {
-        "required": {"type": "array", "items": {"type": "string"}},
-        "optional": {"type": "array", "items": {"type": "string"}}
+        "required": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "optional": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
       }
     },
-    "zentrion": {"type": "object", "properties": {"min_version": {"type": "string"}}}
+    "zentrion": {
+      "type": "object",
+      "properties": {
+        "min_version": {
+          "type": "string"
+        }
+      }
+    }
   }
 }

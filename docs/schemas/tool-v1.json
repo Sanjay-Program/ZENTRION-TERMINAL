@@ -3,58 +3,191 @@
   "$id": "https://zentrion.dev/schemas/tool-v1.json",
   "title": "Zentrion Tool Manifest v1",
   "type": "object",
-  "required": ["apiVersion", "kind", "metadata", "platforms", "permissions", "source", "integrity"],
+  "required": [
+    "apiVersion",
+    "kind",
+    "metadata",
+    "platforms",
+    "permissions",
+    "source",
+    "integrity"
+  ],
   "additionalProperties": false,
   "properties": {
-    "apiVersion": {"const": "zentrion.tool/v1"},
-    "kind": {"const": "Tool"},
+    "apiVersion": {
+      "const": "zentrion.tool/v1"
+    },
+    "kind": {
+      "const": "Tool"
+    },
     "metadata": {
       "type": "object",
-      "required": ["name", "version"],
+      "required": [
+        "name",
+        "version"
+      ],
       "properties": {
-        "name": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-_]*$"},
-        "version": {"type": "string"},
-        "description": {"type": "string"},
-        "license": {"type": "string"},
-        "categories": {"type": "array", "items": {"type": "string"}},
-        "homepage": {"type": "string"}
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-_]*$"
+        },
+        "version": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "license": {
+          "type": "string"
+        },
+        "categories": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "homepage": {
+          "type": "string"
+        }
       }
     },
-    "platforms": {"type": "array", "items": {"enum": ["windows", "macos", "linux"]}},
-    "architectures": {"type": "array", "items": {"enum": ["x64", "arm64"]}},
+    "platforms": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "windows",
+          "macos",
+          "linux"
+        ]
+      }
+    },
+    "architectures": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "x64",
+          "arm64"
+        ]
+      }
+    },
     "permissions": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "network": {"type": "boolean"},
-        "filesystem": {"enum": ["none", "workspace", "home", "system"]},
-        "process": {"type": "boolean"},
-        "raw_sockets": {"type": "boolean"}
+        "network": {
+          "type": "boolean"
+        },
+        "filesystem": {
+          "enum": [
+            "none",
+            "workspace",
+            "home",
+            "system"
+          ]
+        },
+        "process": {
+          "type": "boolean"
+        },
+        "raw_sockets": {
+          "type": "boolean"
+        }
       }
     },
     "source": {
       "type": "object",
-      "required": ["type"],
+      "required": [
+        "type"
+      ],
       "properties": {
-        "type": {"enum": ["upstream", "mirror", "build-from-source"]},
-        "url": {"type": "string", "format": "uri"},
-        "method": {"enum": ["package-manager", "binary", "source-build", "script"]}
+        "type": {
+          "enum": [
+            "upstream",
+            "mirror",
+            "build-from-source"
+          ]
+        },
+        "url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "method": {
+          "enum": [
+            "package-manager",
+            "binary",
+            "source-build",
+            "script"
+          ]
+        }
       }
     },
     "integrity": {
       "type": "object",
-      "required": ["checksum"],
+      "required": [
+        "checksum"
+      ],
       "properties": {
-        "checksum": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
-        "signature": {"type": "string"},
-        "provenance": {"enum": ["upstream-release", "reproducible-build", "ci-verified"]}
+        "checksum": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "signature": {
+          "type": "string"
+        },
+        "provenance": {
+          "enum": [
+            "upstream-release",
+            "reproducible-build",
+            "ci-verified"
+          ]
+        }
       }
     },
-    "dependencies": {"type": "array", "items": {"type": "object", "properties": {"name": {"type": "string"}, "provided_by": {"type": "string"}}}},
+    "dependencies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "provided_by": {
+            "type": "string"
+          }
+        }
+      }
+    },
     "risk": {
       "type": "object",
-      "properties": {"level": {"enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"]}, "network": {"type": "string"}, "notes": {"type": "string"}}
+      "properties": {
+        "level": {
+          "enum": [
+            "LOW",
+            "MEDIUM",
+            "HIGH",
+            "CRITICAL"
+          ]
+        },
+        "network": {
+          "type": "string"
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
     },
-    "lifecycle": {"type": "object", "properties": {"install_behavior": {"type": "string"}, "uninstall": {"type": "string"}, "update_channel": {"type": "string"}}}
+    "lifecycle": {
+      "type": "object",
+      "properties": {
+        "install_behavior": {
+          "type": "string"
+        },
+        "uninstall": {
+          "type": "string"
+        },
+        "update_channel": {
+          "type": "string"
+        }
+      }
+    }
   }
 }

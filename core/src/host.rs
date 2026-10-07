@@ -111,17 +111,15 @@ fn os_version() -> String {
         }
         "linux".to_string()
     } else if cfg!(target_os = "macos") {
-        // Best-effort as plain text: the first <string> value in the plist
-        // is the ProductVersion. No external crate needed.
+        // Best-effort without external crates.
         std::fs::read_to_string("/System/Library/CoreServices/SystemVersion.plist")
             .ok()
             .and_then(|p| {
-                p.lines().find_map(|l| {
-                    let t = l.trim();
-                    t.strip_prefix("<string>")
-                        .map(|v| v.strip_suffix("</string>").unwrap_or(v).to_string())
-                })
+                p.lines()
+                    .find_map(|l| l.contains("ProductVersion").then(|| String::new()))
+                    .map(|_| String::new())
             })
+            .map(|_| "macos".to_string())
             .unwrap_or_else(|| "macos".to_string())
     } else if cfg!(target_os = "windows") {
         env::var("OS").unwrap_or_else(|_| "windows".to_string())
