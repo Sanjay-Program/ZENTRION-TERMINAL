@@ -38,3 +38,4 @@ enterprise = { version = "0.1.0", path = "../enterprise" }
 bundled = { version = "0.1.0", path = "../bundled" }
 update = { version = "0.1.0", path = "../update" }
 daemon = { version = "0.1.0", path = "../daemon" }
+tools = { path = "../tools" }

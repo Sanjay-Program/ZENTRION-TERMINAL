@@ -2,6 +2,7 @@
 
 pub mod broker;
 pub mod types;
+pub mod wrapper;
 
 pub use broker::Broker;
 pub use types::{ActorRef, ExecRequest, ExecResult, ExecStatus};

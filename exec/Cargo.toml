@@ -13,4 +13,5 @@ z-identity = { path = "../identity" }
 z-audit = { path = "../audit" }
 chrono.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 log.workspace = true

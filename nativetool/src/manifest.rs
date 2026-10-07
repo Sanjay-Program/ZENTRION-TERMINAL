@@ -323,6 +323,15 @@ pub struct ToolManifest {
     /// Whether a verified signature is required to install.
     #[serde(default)]
     pub signature_required: bool,
+    /// JSON schema describing the expected input arguments or parameters.
+    #[serde(default)]
+    pub input_schema: Option<serde_json::Value>,
+    /// JSON schema describing the expected normalized output of this tool.
+    #[serde(default)]
+    pub output_schema: Option<serde_json::Value>,
+    /// Risk classification (e.g., "safe", "high-risk", "destructive").
+    #[serde(default)]
+    pub risk_classification: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]

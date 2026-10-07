@@ -553,10 +553,24 @@ pub fn install_tool(
     // Resolve version.
     let versions = reg.versions(name)?;
     if versions.is_empty() {
-        return Err(
-            ZenError::new(Area::Reg, 220, format!("no such tool: {name}"))
-                .with_remediation("Try `z search <term>` or check the registry path."),
-        );
+        println!("{} not found in the curated Zentrion registry.", name);
+        println!("Attempting fallback to native OS package manager...");
+        let os_manager = tools::os_package::OsPackageManager::detect();
+        if matches!(os_manager, tools::os_package::OsPackageManager::Unknown) {
+            return Err(
+                ZenError::new(Area::Reg, 220, format!("no such tool: {name}, and no native OS package manager found"))
+                    .with_remediation("Try `z search <term>` or install a package manager like brew/apt/winget."),
+            );
+        }
+        match os_manager.install(name) {
+            Ok(_) => {
+                println!("Successfully installed {} via OS package manager.", name);
+                return Ok(());
+            },
+            Err(e) => {
+                return Err(ZenError::new(Area::Reg, 220, format!("failed to install {name} natively: {e}")));
+            }
+        }
     }
     let chosen = match &version {
         Some(v) => {

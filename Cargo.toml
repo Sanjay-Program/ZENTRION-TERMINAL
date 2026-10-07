@@ -14,7 +14,7 @@ members = [
     "package",
     "registry",
     "nativetool",
-    "tests", "sandbox", "devsec", "tools", "ai", "agents", "mcp", "sdk", "plugin", "tui", "devsec", "enterprise", "bundled", "update", "daemon",
+    "tests", "sandbox", "devsec", "tools", "ai", "agents", "mcp", "sdk", "plugin", "tui", "devsec", "enterprise", "bundled", "update", "daemon", "p2p",
 ]
 resolver = "2"
 

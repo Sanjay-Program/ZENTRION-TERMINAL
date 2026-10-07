@@ -11,6 +11,8 @@
 //! Trust levels (Phase 2 §9/§56) are explicit, and UNKNOWN is never silently
 //! treated as TRUSTED.
 
+pub mod capability;
+
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

@@ -2,6 +2,8 @@ use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 use z_package::{download_tool, verify_checksum};
 
+pub mod os_package;
+
 pub struct ToolManager {
     tools_dir: PathBuf,
 }
@@ -62,5 +64,10 @@ impl ToolManager {
             std::fs::remove_file(&tool_path).context("Failed to remove tool")?;
         }
         Ok(())
+    }
+
+    pub fn install_os_package(&self, package: &str) -> Result<()> {
+        let manager = os_package::OsPackageManager::detect();
+        manager.install(package)
     }
 }
