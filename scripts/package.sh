@@ -18,6 +18,11 @@ sha256_file() {
 
 cargo build --workspace --release
 OS="$(uname -s | tr 'A-Z' 'a-z')"
+case "$OS" in
+	mingw*|msys*|cygwin*) OS="windows" ;;
+	darwin*) OS="macos" ;;
+	linux*) OS="linux" ;;
+esac
 ARCH="$(uname -m)"
 case "$ARCH" in
 		x86_64|amd64) ARCH="x64" ;;
@@ -27,7 +32,13 @@ NAME="zentrion-${OS}-${ARCH}"
 OUT="dist/${NAME}"
 rm -rf "$OUT"
 mkdir -p "$OUT/bin"
-cp target/release/z "$OUT/bin/"
+if [ -f target/release/z.exe ]; then
+	cp target/release/z.exe "$OUT/bin/"
+	BIN_NAME="bin/z.exe"
+else
+	cp target/release/z "$OUT/bin/"
+	BIN_NAME="bin/z"
+fi
 cp README.md "$OUT/" 2>/dev/null || true
 cp SECURITY.md "$OUT/" 2>/dev/null || true
 cp CHANGELOG.md "$OUT/" 2>/dev/null || true
@@ -42,7 +53,7 @@ cat > "dist/${NAME}.json" <<EOF
 	"name": "${NAME}",
 	"os": "${OS}",
 	"arch": "${ARCH}",
-	"binary": "bin/z",
+	"binary": "${BIN_NAME}",
 	"archive": "${NAME}.tar.gz"
 }
 EOF
