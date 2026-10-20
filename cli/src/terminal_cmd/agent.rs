@@ -6,7 +6,8 @@ use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
 use std::time::Duration;
 use z_agents::{
-    AgentProfile, ApprovalBroker, LaunchOptions, McpServer, McpServerOptions, Supervisor,
+    AgentProfile, AgentRunInfo, ApprovalBroker, LaunchOptions, McpServer, McpServerOptions,
+    Supervisor,
 };
 
 fn load_adapters() -> Vec<z_agents::Adapter> {
@@ -66,6 +67,10 @@ pub fn agent(args: &[String], json_out: bool) -> ZenResult<()> {
     );
     let adapters = load_adapters();
     let data = data_dir()?;
+    #[cfg(unix)]
+    let daemon = z_session::connect_or_spawn().ok();
+    #[cfg(not(unix))]
+    let daemon: Option<()> = None;
     match parsed.command("list") {
         "adapters" => {
             if json_out {
@@ -131,6 +136,15 @@ pub fn agent(args: &[String], json_out: bool) -> ZenResult<()> {
             }
         }
         "list" | "dashboard" | "status" => {
+            #[cfg(unix)]
+            if let Some(client) = &daemon {
+                return list_daemon(
+                    client,
+                    &data,
+                    json_out,
+                    parsed.command("list") == "dashboard",
+                );
+            }
             let supervisor = Supervisor::new(&data, adapters);
             let mut runs = supervisor.list();
             if runs.is_empty() {
@@ -162,6 +176,10 @@ pub fn agent(args: &[String], json_out: bool) -> ZenResult<()> {
             Ok(())
         }
         "run" => {
+            #[cfg(unix)]
+            if let Some(client) = &daemon {
+                return run_daemon(client, &parsed, json_out);
+            }
             let adapter_id = parsed
                 .value("--agent")
                 .or_else(|| parsed.rest().first().map(String::as_str))
@@ -265,6 +283,32 @@ pub fn agent(args: &[String], json_out: bool) -> ZenResult<()> {
                 .rest()
                 .first()
                 .ok_or_else(|| fail("usage: z agent resume <run-id>"))?;
+            #[cfg(unix)]
+            if let Some(client) = &daemon {
+                let info = client
+                    .call(
+                        "agent.resume",
+                        json!({"run_id": run_id, "prompt": parsed.value("--prompt")}),
+                    )
+                    .map_err(|e| map_err("cannot resume agent", e))?;
+                let info: z_agents::AgentRunInfo =
+                    serde_json::from_value(info).map_err(|e| map_err("invalid resume response", e))?;
+                if !json_out {
+                    println!("{}", info.id);
+                }
+                if parsed.flag("--detach") {
+                    return Ok(());
+                }
+                return stream_daemon(
+                    client,
+                    &info.id,
+                    parsed
+                        .value("--timeout")
+                        .and_then(parse_timeout)
+                        .unwrap_or(Duration::from_secs(30 * 60)),
+                    json_out,
+                );
+            }
             let supervisor = Supervisor::new(&data, adapters);
             let handle = supervisor
                 .resume(run_id, parsed.value("--prompt").map(str::to_string))
@@ -287,6 +331,32 @@ pub fn agent(args: &[String], json_out: bool) -> ZenResult<()> {
                 .rest()
                 .first()
                 .ok_or_else(|| fail("usage: z agent fork <run-id> --prompt <text>"))?;
+            #[cfg(unix)]
+            if let Some(client) = &daemon {
+                let info = client
+                    .call(
+                        "agent.fork",
+                        json!({"run_id": run_id, "prompt": parsed.value("--prompt")}),
+                    )
+                    .map_err(|e| map_err("cannot fork agent", e))?;
+                let info: z_agents::AgentRunInfo =
+                    serde_json::from_value(info).map_err(|e| map_err("invalid fork response", e))?;
+                if !json_out {
+                    println!("{}", info.id);
+                }
+                if parsed.flag("--detach") {
+                    return Ok(());
+                }
+                return stream_daemon(
+                    client,
+                    &info.id,
+                    parsed
+                        .value("--timeout")
+                        .and_then(parse_timeout)
+                        .unwrap_or(Duration::from_secs(30 * 60)),
+                    json_out,
+                );
+            }
             let supervisor = Supervisor::new(&data, adapters.clone());
             let previous = supervisor
                 .load_run(run_id)
@@ -388,6 +458,23 @@ pub fn agent(args: &[String], json_out: bool) -> ZenResult<()> {
                 Ok(())
             }
         }
+        "stop" => {
+            let id = parsed
+                .rest()
+                .first()
+                .ok_or_else(|| fail("usage: z agent stop <run-id>"))?;
+            #[cfg(unix)]
+            if let Some(client) = &daemon {
+                client
+                    .call("agent.stop", json!({"agent_id": id}))
+                    .map_err(|e| map_err("cannot stop agent", e))?;
+                if !json_out {
+                    println!("stopped {id}");
+                }
+                return Ok(());
+            }
+            Err(fail("agent stop requires the session daemon"))
+        }
         "trace" => {
             let id = parsed
                 .rest()
@@ -413,9 +500,284 @@ pub fn agent(args: &[String], json_out: bool) -> ZenResult<()> {
             }
         }
         other => Err(fail(format!(
-            "unknown agent subcommand `{other}` (adapters|validate-adapter|profiles|list|dashboard|run|resume|fork|approvals|approve|deny|trace)"
+            "unknown agent subcommand `{other}` (adapters|validate-adapter|profiles|list|dashboard|run|resume|fork|stop|approvals|approve|deny|trace)"
         ))),
     }
+}
+
+#[cfg(unix)]
+fn run_daemon(client: &z_session::SessionClient, parsed: &Parsed, json_out: bool) -> ZenResult<()> {
+    let adapter_id = parsed
+        .value("--agent")
+        .or_else(|| parsed.rest().first().map(String::as_str))
+        .ok_or_else(|| fail("usage: z agent run <adapter> [--prompt <text>] [--profile <name>]"))?;
+    let workspace = parsed
+        .value("--cwd")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+    let mut params = json!({
+        "adapter": adapter_id,
+        "cwd": workspace.display().to_string(),
+    });
+    if let Some(prompt) = parsed.value("--prompt") {
+        params["prompt"] = json!(prompt);
+    }
+    if let Some(profile) = parsed.value("--profile") {
+        params["profile"] = json!(profile);
+    }
+    if let Some(model) = parsed.value("--model") {
+        params["model"] = json!(model);
+    }
+    let value = client
+        .call("agent.start", params)
+        .map_err(|e| map_err("cannot start agent", e))?;
+    let info: AgentRunInfo =
+        serde_json::from_value(value).map_err(|e| map_err("invalid agent response", e))?;
+    if !json_out {
+        println!("{}", info.id);
+        eprintln!(
+            "agent `{}` started in the session daemon ({}), state {}{}",
+            info.adapter_name,
+            info.id,
+            info.state.as_str(),
+            if info.approximate {
+                " [state detection is approximate]"
+            } else {
+                ""
+            }
+        );
+    }
+    if parsed.flag("--detach") {
+        return Ok(());
+    }
+    let interactive = std::io::stdin().is_terminal()
+        && parsed.value("--prompt").is_none()
+        && !parsed.flag("--wait");
+    if interactive {
+        stream_daemon_interactive(client, &info.id)
+    } else {
+        stream_daemon(
+            client,
+            &info.id,
+            parsed
+                .value("--timeout")
+                .and_then(parse_timeout)
+                .unwrap_or(Duration::from_secs(30 * 60)),
+            json_out,
+        )
+    }
+}
+
+#[cfg(unix)]
+fn stream_daemon(
+    client: &z_session::SessionClient,
+    id: &str,
+    timeout: Duration,
+    quiet: bool,
+) -> ZenResult<()> {
+    let deadline = std::time::Instant::now() + timeout;
+    let mut written = 0usize;
+    let stdout = std::io::stdout();
+    let mut lock = stdout.lock();
+    loop {
+        let value = client
+            .call("agent.get", json!({"agent_id": id}))
+            .map_err(|e| map_err("cannot read agent state", e))?;
+        let info: AgentRunInfo = serde_json::from_value(value["info"].clone())
+            .map_err(|e| map_err("invalid agent state", e))?;
+        let output = value["output"].as_str().unwrap_or("");
+        if output.len() < written {
+            written = 0;
+            if !quiet {
+                writeln!(lock, "\n[agent output rotated; showing the tail]")
+                    .map_err(|e| map_err("cannot write output", e))?;
+            }
+        }
+        if output.len() > written {
+            if !quiet {
+                lock.write_all(output[written..].as_bytes())
+                    .map_err(|e| map_err("cannot write agent output", e))?;
+                lock.flush().ok();
+            }
+            written = output.len();
+        }
+        if info.terminal() {
+            if !quiet {
+                writeln!(
+                    lock,
+                    "\nfinished: state {}, exit {:?}, duration {}ms",
+                    info.state.as_str(),
+                    info.exit_code,
+                    info.elapsed_ms()
+                )
+                .map_err(|e| map_err("cannot write output", e))?;
+            }
+            if info.state == z_agents::AgentState::Failed {
+                return Err(fail("agent run failed"));
+            }
+            return Ok(());
+        }
+        if std::time::Instant::now() >= deadline {
+            return Err(fail(format!(
+                "agent still running in the daemon; detach/reattach with `z agent list` (run id {id})"
+            )));
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+#[cfg(unix)]
+fn stream_daemon_interactive(client: &z_session::SessionClient, id: &str) -> ZenResult<()> {
+    let _raw = super::session::RawMode::enable()?;
+    let stdout = std::io::stdout();
+    let mut lock = stdout.lock();
+    let mut written = 0usize;
+    loop {
+        let value = client
+            .call("agent.get", json!({"agent_id": id}))
+            .map_err(|e| map_err("cannot read agent state", e))?;
+        let info: AgentRunInfo = serde_json::from_value(value["info"].clone())
+            .map_err(|e| map_err("invalid agent state", e))?;
+        let output = value["output"].as_str().unwrap_or("");
+        if output.len() < written {
+            written = 0;
+        }
+        if output.len() > written {
+            lock.write_all(output[written..].as_bytes())
+                .map_err(|e| map_err("cannot write agent output", e))?;
+            lock.flush().ok();
+            written = output.len();
+        }
+        if info.terminal() {
+            return Ok(());
+        }
+        if crossterm::event::poll(Duration::from_millis(30))
+            .map_err(|e| map_err("input poll failed", e))?
+        {
+            match crossterm::event::read().map_err(|e| map_err("input read failed", e))? {
+                crossterm::event::Event::Key(key)
+                    if key.kind != crossterm::event::KeyEventKind::Release =>
+                {
+                    if key
+                        .modifiers
+                        .contains(crossterm::event::KeyModifiers::CONTROL)
+                        && matches!(key.code, crossterm::event::KeyCode::Char(']'))
+                    {
+                        let _ = client.call("agent.stop", json!({"agent_id": id}));
+                        eprintln!("\r\n[detached and stopped {id}]");
+                        return Ok(());
+                    }
+                    let bytes = super::session::key_bytes(&key);
+                    if !bytes.is_empty() {
+                        use base64::Engine;
+                        let data = base64::engine::general_purpose::STANDARD.encode(bytes);
+                        let _ = client.call(
+                            "agent.input",
+                            json!({"agent_id": id, "data": data, "mode": "raw"}),
+                        );
+                    }
+                }
+                crossterm::event::Event::Paste(text) => {
+                    use base64::Engine;
+                    let data = base64::engine::general_purpose::STANDARD.encode(text.as_bytes());
+                    let _ = client.call(
+                        "agent.input",
+                        json!({"agent_id": id, "data": data, "mode": "raw"}),
+                    );
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+fn list_daemon(
+    client: &z_session::SessionClient,
+    data: &std::path::Path,
+    json_out: bool,
+    detailed: bool,
+) -> ZenResult<()> {
+    let value = client
+        .call("agent.list", json!({}))
+        .map_err(|e| map_err("cannot list agents", e))?;
+    let mut runs: Vec<AgentRunInfo> = serde_json::from_value(value["agents"].clone())
+        .map_err(|e| map_err("invalid agent list", e))?;
+    if runs.is_empty() {
+        let supervisor = Supervisor::new(data, Vec::new());
+        runs = supervisor.history();
+    }
+    let pending = broker(
+        "dashboard",
+        "agent-dev",
+        &std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
+    )
+    .map(|broker| broker.pending())
+    .unwrap_or_default();
+    if json_out {
+        return print_json(&json!({
+            "runs": runs,
+            "dashboard": value["dashboard"],
+            "adapters": value["adapters"],
+            "approvals": pending,
+        }));
+    }
+    if runs.is_empty() {
+        println!("No agent runs. Start one with `z agent run <adapter> --prompt ...`.");
+        return Ok(());
+    }
+    if detailed {
+        println!(
+            "{:<26} {:<14} {:<18} {:<10} {:<14} {:>9} {:>7}  {}",
+            "RUN", "AGENT", "STATE", "MODEL", "PROFILE", "ELAPSED", "QUEUED", "WORKSPACE"
+        );
+        for run in &runs {
+            println!(
+                "{:<26} {:<14} {:<18} {:<10} {:<14} {:>8}ms {:>7}  {}{}",
+                run.id,
+                run.adapter_id,
+                run.state.as_str(),
+                run.model.as_deref().unwrap_or("-"),
+                run.profile,
+                run.elapsed_ms(),
+                run.queued_prompts,
+                run.workspace,
+                if run.approximate { "  [approx]" } else { "" }
+            );
+        }
+        if pending.is_empty() {
+            println!("\nNo pending approvals.");
+        } else {
+            println!(
+                "\nPending approvals ({}) — approve with `z agent approve <id>`:",
+                pending.len()
+            );
+            for request in &pending {
+                println!(
+                    "  {}  {:<18} {:<28} risk {}",
+                    request.id, request.action, request.resource, request.risk
+                );
+            }
+        }
+    } else {
+        println!(
+            "{:<26} {:<14} {:<18} {:<10} {:>9}  {}",
+            "RUN", "AGENT", "STATE", "PROFILE", "ELAPSED", "WORKSPACE"
+        );
+        for run in &runs {
+            println!(
+                "{:<26} {:<14} {:<18} {:<10} {:>8}ms  {}{}",
+                run.id,
+                run.adapter_id,
+                run.state.as_str(),
+                run.profile,
+                run.elapsed_ms(),
+                run.workspace,
+                if run.approximate { "  [approx]" } else { "" }
+            );
+        }
+    }
+    Ok(())
 }
 
 fn stream_until_done(

@@ -24,3 +24,5 @@ z-vt = { path = "../z-vt" }
 z-blocks = { path = "../z-blocks" }
 z-session = { path = "../z-session" }
 z-config = { path = "../z-config" }
+z-agents = { path = "../z-agents" }
+z-policy = { path = "../policy" }

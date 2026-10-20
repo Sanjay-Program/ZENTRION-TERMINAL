@@ -1,0 +1,3 @@
+{"agent":"a_c771012f934b4a7ba1eaddec929c3d5e","detail":"running","event":"state","ts":"2026-10-20T15:59:50.561032319+00:00"}
+{"agent":"a_c771012f934b4a7ba1eaddec929c3d5e","detail":"adapter=slow profile=agent-readonly","event":"start","ts":"2026-10-20T15:59:50.561344872+00:00"}
+{"agent":"a_c771012f934b4a7ba1eaddec929c3d5e","detail":"code=Some(0)","event":"exit","ts":"2026-10-20T15:59:54.551440431+00:00"}

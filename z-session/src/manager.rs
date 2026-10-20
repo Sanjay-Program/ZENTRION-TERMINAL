@@ -127,6 +127,10 @@ impl SessionManager {
         &self.options.config
     }
 
+    pub fn data_dir(&self) -> &Path {
+        &self.options.data_dir
+    }
+
     pub fn create(&self, params: CreateParams) -> Result<SessionInfo> {
         if self.shutting_down.load(Ordering::SeqCst) {
             return Err(SessionError::Unavailable("daemon is shutting down".into()));

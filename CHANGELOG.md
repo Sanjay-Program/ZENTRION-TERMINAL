@@ -36,6 +36,15 @@
   redacted markdown/HTML reports.
 - Added Ed25519 signing to `z-identity` for checkpoint/evidence/report exports.
 
+### Daemon-owned agents and approvals
+- Moved the agent supervisor into the session daemon: `z agent run --detach`
+  keeps running after the CLI exits; `z agent list/dashboard` reports live
+  state; `z agent stop` terminates a run.
+- Added `agent.start/list/get/input/queue/stop/resume/fork` JSON-RPC methods
+  and streaming output polling.
+- Added a TUI approval inbox (`Alt+A`) that lists pending requests with
+  action/resource/risk/expiry and approves/denies with an audit event.
+
 ### Agents and MCP
 - Added `z-agents`: adapter manifests for Claude Code, Codex, Gemini CLI,
   OpenCode, Aider and custom agents, built-in profiles, PTY supervisor with

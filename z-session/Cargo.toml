@@ -21,5 +21,6 @@ sha2.workspace = true
 libc = "0.2"
 z-vt = { path = "../z-vt" }
 z-config = { path = "../z-config" }
+z-agents = { path = "../z-agents" }
 z-blocks = { path = "../z-blocks" }
 z-core = { path = "../core" }

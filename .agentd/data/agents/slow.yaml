@@ -1,0 +1,9 @@
+version: 1
+id: slow
+name: Slow Agent
+command: /bin/sh
+args: ["-c", "echo agent-started; sleep 4; echo agent-done"]
+detect: {binaries: [], env: []}
+events: {mode: screen, status_patterns: []}
+permissions: {default_profile: agent-readonly, allow_write: false, allow_network: false}
+ui: {badge: SL, color: "#fff"}

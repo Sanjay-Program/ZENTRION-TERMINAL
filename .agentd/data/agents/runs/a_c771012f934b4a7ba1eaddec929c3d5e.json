@@ -1,0 +1,22 @@
+{
+  "id": "a_c771012f934b4a7ba1eaddec929c3d5e",
+  "adapter_id": "slow",
+  "adapter_name": "Slow Agent",
+  "state": "done",
+  "approximate": true,
+  "pid": 782,
+  "started_at": "2026-10-20T15:59:50.546301673Z",
+  "ended_at": "2026-10-20T15:59:54.551429704Z",
+  "exit_code": 0,
+  "model": null,
+  "profile": "agent-readonly",
+  "workspace": "/home/sanjay/zentrion/terminal",
+  "prompt": "hello",
+  "queued_prompts": 0,
+  "last_error": null,
+  "tokens_in": null,
+  "tokens_out": null,
+  "cost_micros": null,
+  "badge": "SL",
+  "color": "#fff"
+}

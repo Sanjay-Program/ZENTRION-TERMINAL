@@ -27,7 +27,8 @@ Legend: **implemented** · **partial** (working with a stated limit) ·
 | Content-addressed checkpoints, diff, rollback, GC | implemented | `z-checkpoint` | Blob dedupe, signed manifests (Ed25519), diff hunks, byte-verified full/file restore, deletion of added files, workspace lock, GC. Hunk-level *accept* is not implemented (view hunks, accept/restore per file). |
 | Workflows (run/approve/parallel/if/http/artifact), vars, secrets, audit | implemented | `z-workflow` | 20 tests including timeout kill, denied approval, parallel, artifact traversal, audit records. No scheduler/daemon and no notebooks yet. |
 | Security engagements, scope guard, evidence chain, findings, signed reports | implemented | `z-security` | 21 tests: wildcard/CIDR/ports/out-of-scope, break-glass, pre-execution blocking, Ed25519 evidence chain, tamper detection, signed markdown/HTML. It does not bundle scanners; it governs commands you run. |
-| Agent adapters, profiles, approval broker, supervisor, MCP server | implemented (foreground) | `z-agents` | 21 tests: pattern parsing, policy denial, single-use tokens/replay, audit, PTY agent run, MCP tool calls, path escape, approval-required path. Agents run in the CLI process, not the session daemon, so they are not durable across a UI restart. |
+| Agent adapters, profiles, approval broker, supervisor, MCP server | implemented (daemon-owned) | `z-agents`, `z-session` | 21 unit tests plus a CLI integration test: the session daemon owns agent PTYs, so `z agent run --detach` survives CLI exit and `z agent list` reports live state. Approvals are single-use, audited, and can be resolved from the CLI or the TUI approval inbox (`Alt+A`). |
+| TUI approval inbox | implemented | `tui` | `Alt+A` lists pending broker requests with action/resource/risk/expiry; `a`/`d` approve or deny and write the audit log. |
 | Agent policy actions | implemented | `z-policy` | `agent.tool.call`, `agent.fs.*`, `agent.exec`, `agent.shell`, `agent.net`, `agent.secret.read`; deny by default. |
 | TUI blocks, global search, rerun, OSC 9;4 progress | implemented (session-local + persisted search) | `tui` | Shell integration and blocks are wired into TUI sessions; `F11` searches both the live session and the persisted SQLite block store and can rerun a command. A full approval modal is still CLI-only. |
 | Copy mode, vi motions, OSC 52 clipboard | implemented (line-based) | `tui/src/copy.rs` | Six unit tests for motions, inclusive Unicode-safe selections and search/wrap. `F12` opens copy mode, `v` selects, `y` yanks via OSC 52. Rectangular block selection is not implemented. |
@@ -82,8 +83,9 @@ All destructive or agentic paths are deny-by-default and audited:
    select/next/prev, pane next). Actions with no TUI implementation — agent
    dashboard, workspace save/open, font scaling — fall through or do nothing,
    so the “every action rebindable” criterion is not fully met.
-2. **Agents are not daemon-owned.** `z agent run` owns the PTY in-process.
-   Closing the CLI ends the agent. Session daemon integration is future work.
+2. **The TUI agent dashboard is still static.** Agents now run in the session
+   daemon and the TUI has a working approval inbox, but the `Agents` dashboard
+   page does not yet poll live runs. Use `z agent dashboard` for the live table.
 3. **State detection is approximate.** Adapter manifests support `hooks` and
    `jsonl` modes, but the current detector only evaluates screen patterns for
    all modes; the UI labels this as approximate. Do not treat `waiting_input`

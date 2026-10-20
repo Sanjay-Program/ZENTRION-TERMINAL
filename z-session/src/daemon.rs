@@ -19,6 +19,7 @@ use std::time::Instant;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::{mpsc, watch};
+use z_agents::{AgentRunInfo, LaunchOptions, Supervisor};
 
 #[derive(Debug, Default)]
 pub struct DaemonState {
@@ -30,6 +31,7 @@ pub struct DaemonState {
 #[derive(Clone)]
 pub struct Daemon {
     manager: Arc<SessionManager>,
+    supervisor: Arc<Supervisor>,
     state: Arc<DaemonState>,
     shutdown_tx: watch::Sender<bool>,
     socket: PathBuf,
@@ -70,8 +72,15 @@ pub fn run(manager: SessionManager, socket: PathBuf) -> Result<(), String> {
         .map_err(|e| format!("cannot start runtime: {e}"))?;
     runtime.block_on(async move {
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let mut adapter_dirs = z_agents::default_dirs();
+        for dir in &manager.config().agents.adapter_dirs {
+            adapter_dirs.push(PathBuf::from(dir));
+        }
+        let adapters = z_agents::discover(&adapter_dirs);
+        let supervisor = Arc::new(Supervisor::new(manager.data_dir(), adapters));
         let daemon = Daemon {
             manager: Arc::new(manager),
+            supervisor,
             state: Arc::new(DaemonState::default()),
             shutdown_tx,
             socket: socket.clone(),
@@ -129,6 +138,7 @@ impl Daemon {
                 }
             }
         }
+        self.supervisor.stop_all();
         self.manager.shutdown();
         let _ = std::fs::remove_file(&self.socket);
         let _ = std::fs::remove_file(pid_path(&self.socket));
@@ -435,6 +445,209 @@ impl Daemon {
             "session.blocks" => {
                 let id = param_str(&request.params, "session_id")?;
                 Ok(json!({"blocks": self.manager.attach_blocks(&id)}))
+            }
+            "agent.start" => {
+                let adapter_id = param_str(&request.params, "adapter")?;
+                let adapter = self
+                    .supervisor
+                    .adapter(&adapter_id)
+                    .cloned()
+                    .ok_or_else(|| {
+                        (
+                            ERR_NOT_FOUND,
+                            format!("agent adapter `{adapter_id}` not found"),
+                        )
+                    })?;
+                let profile = request
+                    .params
+                    .get("profile")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+                    .unwrap_or_else(|| adapter.permissions.default_profile.clone());
+                z_agents::AgentProfile::builtin(&profile).ok_or_else(|| {
+                    (
+                        ERR_INVALID_PARAMS,
+                        format!("unknown agent profile `{profile}`"),
+                    )
+                })?;
+                let cwd = request
+                    .params
+                    .get("cwd")
+                    .and_then(Value::as_str)
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| {
+                        std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+                    });
+                let env = request
+                    .params
+                    .get("env")
+                    .and_then(Value::as_array)
+                    .map(|values| {
+                        values
+                            .iter()
+                            .filter_map(|value| {
+                                Some((
+                                    value.get("key")?.as_str()?.to_string(),
+                                    value.get("value")?.as_str()?.to_string(),
+                                ))
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let info = self
+                    .supervisor
+                    .launch(LaunchOptions {
+                        adapter,
+                        prompt: request
+                            .params
+                            .get("prompt")
+                            .and_then(Value::as_str)
+                            .map(str::to_string),
+                        model: request
+                            .params
+                            .get("model")
+                            .and_then(Value::as_str)
+                            .map(str::to_string),
+                        cwd,
+                        profile,
+                        env,
+                        command_override: None,
+                    })
+                    .map_err(|e| (crate::protocol::ERR_INTERNAL, e))?
+                    .info();
+                Ok(serde_json::to_value(info).unwrap_or(Value::Null))
+            }
+            "agent.list" | "agent.dashboard" => {
+                let runs: Vec<AgentRunInfo> = self.supervisor.list();
+                let dashboard = self.supervisor.dashboard();
+                Ok(json!({
+                    "agents": runs,
+                    "dashboard": dashboard,
+                    "adapters": self.supervisor.adapters(),
+                }))
+            }
+            "agent.get" => {
+                let id = param_str(&request.params, "agent_id")?;
+                let handle = self
+                    .supervisor
+                    .get(&id)
+                    .ok_or_else(|| (ERR_NOT_FOUND, format!("agent run `{id}` not found")))?;
+                let info = handle.info();
+                let output = handle.output();
+                Ok(json!({
+                    "info": info,
+                    "output": output,
+                    "output_len": output.len(),
+                    "truncated": output.len() >= 64 * 1024,
+                }))
+            }
+            "agent.input" => {
+                let id = param_str(&request.params, "agent_id")?;
+                let handle = self
+                    .supervisor
+                    .get(&id)
+                    .ok_or_else(|| (ERR_NOT_FOUND, format!("agent run `{id}` not found")))?;
+                if let Some(data) = request.params.get("data").and_then(Value::as_str) {
+                    let bytes = base64::engine::general_purpose::STANDARD
+                        .decode(data)
+                        .map_err(|e| (ERR_INVALID_PARAMS, format!("invalid base64: {e}")))?;
+                    let text = String::from_utf8_lossy(&bytes).to_string();
+                    if request
+                        .params
+                        .get("mode")
+                        .and_then(Value::as_str)
+                        .unwrap_or("raw")
+                        == "prompt"
+                    {
+                        handle
+                            .send_prompt(&text)
+                            .map_err(|e| (crate::protocol::ERR_INTERNAL, e))?;
+                    } else {
+                        handle
+                            .write_raw(&bytes)
+                            .map_err(|e| (crate::protocol::ERR_INTERNAL, e))?;
+                    }
+                } else if let Some(prompt) = request.params.get("prompt").and_then(Value::as_str) {
+                    handle
+                        .send_prompt(prompt)
+                        .map_err(|e| (crate::protocol::ERR_INTERNAL, e))?;
+                } else {
+                    return Err((ERR_INVALID_PARAMS, "missing `data` or `prompt`".into()));
+                }
+                Ok(json!({"accepted": true}))
+            }
+            "agent.queue" => {
+                let id = param_str(&request.params, "agent_id")?;
+                let prompt = request
+                    .params
+                    .get("prompt")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| (ERR_INVALID_PARAMS, "missing prompt".into()))?;
+                self.supervisor
+                    .get(&id)
+                    .ok_or_else(|| (ERR_NOT_FOUND, format!("agent run `{id}` not found")))?
+                    .queue_prompt(prompt);
+                Ok(json!({"queued": true}))
+            }
+            "agent.stop" => {
+                let id = param_str(&request.params, "agent_id")?;
+                self.supervisor
+                    .get(&id)
+                    .ok_or_else(|| (ERR_NOT_FOUND, format!("agent run `{id}` not found")))?
+                    .stop()
+                    .map_err(|e| (crate::protocol::ERR_INTERNAL, e))?;
+                Ok(json!({"stopped": id}))
+            }
+            "agent.resume" => {
+                let run_id = param_str(&request.params, "run_id")?;
+                let info = self
+                    .supervisor
+                    .resume(
+                        &run_id,
+                        request
+                            .params
+                            .get("prompt")
+                            .and_then(Value::as_str)
+                            .map(str::to_string),
+                    )
+                    .map_err(|e| (ERR_NOT_FOUND, e))?
+                    .info();
+                Ok(serde_json::to_value(info).unwrap_or(Value::Null))
+            }
+            "agent.fork" => {
+                let run_id = param_str(&request.params, "run_id")?;
+                let previous = self
+                    .supervisor
+                    .load_run(&run_id)
+                    .ok_or_else(|| (ERR_NOT_FOUND, format!("agent run `{run_id}` not found")))?;
+                let adapter = self
+                    .supervisor
+                    .adapter(&previous.adapter_id)
+                    .cloned()
+                    .ok_or_else(|| {
+                        (
+                            ERR_NOT_FOUND,
+                            format!("adapter `{}` not found", previous.adapter_id),
+                        )
+                    })?;
+                let info = self
+                    .supervisor
+                    .launch(LaunchOptions {
+                        adapter,
+                        prompt: request
+                            .params
+                            .get("prompt")
+                            .and_then(Value::as_str)
+                            .map(str::to_string),
+                        model: previous.model.clone(),
+                        cwd: PathBuf::from(&previous.workspace),
+                        profile: previous.profile.clone(),
+                        env: Vec::new(),
+                        command_override: None,
+                    })
+                    .map_err(|e| (crate::protocol::ERR_INTERNAL, e))?
+                    .info();
+                Ok(serde_json::to_value(info).unwrap_or(Value::Null))
             }
             other => Err((ERR_METHOD_NOT_FOUND, format!("unknown method `{other}`"))),
         }

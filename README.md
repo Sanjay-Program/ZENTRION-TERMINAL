@@ -103,8 +103,10 @@ PTY, tabs, splits, and a local control plane.
   filesystem confinement. `z platform` reports `resource-limits`.
 - **TUI keybindings are only partially rebindable.** `z config keys` validates
   and prints the keymap, but the ratatui app still handles most keys directly.
-- **Agent runs are foreground.** `z agent run` owns the agent PTY in-process;
-  closing the CLI ends the agent. Agent state derived from screen patterns is
+- **Agents run in the session daemon, but the TUI dashboard is static.**
+  `z agent run --detach` survives CLI exit and `z agent dashboard` shows live
+  runs; the TUI `Agents` page and approval inbox (`Alt+A`) are not yet a full
+  dashboard with telemetry/cost. Agent state derived from screen patterns is
   labelled approximate.
 - **Sessions are Unix-only.** The daemon/client use a Unix socket; the Windows
   named-pipe transport is not implemented. Raw scrollback is not persisted

@@ -864,3 +864,70 @@ fn session_daemon_records_blocks_and_replays() {
     cmd.args(["session", "stop"]);
     let _ = cmd.status();
 }
+
+#[test]
+fn agent_runs_are_owned_by_the_session_daemon_and_survive_cli_exit() {
+    if !cfg!(unix) {
+        return;
+    }
+    let env = Env::new("agent-daemon");
+    let root = env.project();
+    let socket = env.dir.join("session.sock");
+    let adapters = env.dir.join("data/agents");
+    std::fs::create_dir_all(&adapters).unwrap();
+    std::fs::write(
+        adapters.join("slow.yaml"),
+        r##"
+version: 1
+id: slow
+name: Slow Agent
+command: /bin/sh
+args: ["-c", "echo agent-started; sleep 2; echo agent-done"]
+detect: {binaries: [], env: []}
+events: {mode: screen, status_patterns: []}
+permissions: {default_profile: agent-readonly, allow_write: false, allow_network: false}
+ui: {badge: SL, color: "#fff"}
+"##,
+    )
+    .unwrap();
+    let mut cmd = env.cmd_in(&root);
+    cmd.env("ZENTRION_SESSION_SOCKET", &socket);
+    let out = cmd
+        .args(["agent", "run", "slow", "--prompt", "hello", "--detach"])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let id = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    assert!(id.starts_with("a_"), "{id}");
+
+    let mut cmd = env.cmd_in(&root);
+    cmd.env("ZENTRION_SESSION_SOCKET", &socket);
+    let out = cmd.args(["agent", "list"]).output().unwrap();
+    assert!(out.status.success());
+    let listing = String::from_utf8_lossy(&out.stdout);
+    assert!(listing.contains(&id), "{listing}");
+    assert!(listing.contains("running"), "{listing}");
+
+    // The CLI process that launched the agent is gone; the daemon keeps it.
+    std::thread::sleep(std::time::Duration::from_millis(2600));
+    let mut cmd = env.cmd_in(&root);
+    cmd.env("ZENTRION_SESSION_SOCKET", &socket);
+    let out = cmd.args(["agent", "list"]).output().unwrap();
+    let listing = String::from_utf8_lossy(&out.stdout);
+    assert!(listing.contains(&id), "{listing}");
+    assert!(listing.contains("done"), "{listing}");
+
+    let trace = env
+        .dir
+        .join("data/agents/traces")
+        .join(format!("{id}.jsonl"));
+    assert!(trace.exists(), "agent trace missing");
+    let mut cmd = env.cmd_in(&root);
+    cmd.env("ZENTRION_SESSION_SOCKET", &socket);
+    cmd.args(["session", "stop"]);
+    let _ = cmd.status();
+}

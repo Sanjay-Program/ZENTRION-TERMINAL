@@ -184,6 +184,10 @@ pub struct App {
     allowed_schemes: Vec<String>,
     show_blocks: bool,
     persisted_blocks: Vec<(z_blocks::Block, String)>,
+    approvals_open: bool,
+    approvals: Vec<z_agents::ApprovalRequest>,
+    approval_selected: usize,
+    approval_status: String,
     block_query: String,
     block_selected: usize,
     block_scroll: usize,
@@ -247,6 +251,10 @@ impl App {
             allowed_schemes,
             show_blocks: false,
             persisted_blocks: Vec::new(),
+            approvals_open: false,
+            approvals: Vec::new(),
+            approval_selected: 0,
+            approval_status: String::new(),
             block_query: String::new(),
             block_selected: 0,
             block_scroll: 0,
@@ -632,6 +640,9 @@ impl App {
         if self.copy.is_some() {
             self.draw_copy(f, body, &theme);
         }
+        if self.approvals_open {
+            self.draw_approvals(f, body, &theme);
+        }
 
         if self.show_palette {
             self.draw_palette(f, body, &theme);
@@ -845,6 +856,12 @@ impl App {
                 }
                 false
             }
+            "agents.approvals" => {
+                self.refresh_approvals();
+                self.approvals_open = true;
+                self.approval_selected = 0;
+                true
+            }
             "search.open" | "search.all" | "blocks.toggle" => {
                 self.show_blocks = true;
                 self.block_query.clear();
@@ -860,6 +877,134 @@ impl App {
             _ => false,
         };
         Ok(handled)
+    }
+
+    fn approval_broker(&self) -> Option<z_agents::ApprovalBroker> {
+        let workspace = std::env::current_dir().ok()?;
+        let _profile = z_agents::AgentProfile::builtin("agent-dev")?;
+        z_agents::ApprovalBroker::new(
+            "tui-approvals",
+            z_agents::AgentProfile::builtin("agent-dev")?,
+            z_policy::Policy::default(),
+            &workspace,
+            &self.data_dir.join("agents").join("approvals.json"),
+            &self.data_dir.join("audit").join("events.jsonl"),
+        )
+        .ok()
+    }
+
+    fn refresh_approvals(&mut self) {
+        self.approvals = self
+            .approval_broker()
+            .map(|broker| broker.pending())
+            .unwrap_or_default();
+        if self.approval_selected >= self.approvals.len() {
+            self.approval_selected = self.approvals.len().saturating_sub(1);
+        }
+    }
+
+    fn draw_approvals(&self, f: &mut Frame, body: Rect, theme: &Theme) {
+        let popup = centered_rect(body, 84, 60);
+        f.render_widget(Clear, popup);
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(theme.warning))
+            .title(format!(
+                " Agent approvals — {} pending · a approve · d deny · r refresh · Esc close ",
+                self.approvals.len()
+            ));
+        let inner = block.inner(popup);
+        f.render_widget(block, popup);
+        let mut lines: Vec<Line> = Vec::new();
+        if self.approvals.is_empty() {
+            lines.push(Line::from(Span::styled(
+                "No pending agent approvals.",
+                Style::default().fg(theme.secondary),
+            )));
+        }
+        for (index, request) in self.approvals.iter().enumerate() {
+            let selected = index == self.approval_selected;
+            let style = if selected {
+                Style::default()
+                    .fg(theme.background)
+                    .bg(theme.primary)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(theme.text)
+            };
+            lines.push(Line::from(Span::styled(
+                format!(
+                    "{}  {:<18} {:<28} risk {:<8} expires {}",
+                    request.id,
+                    request.action,
+                    request.resource,
+                    request.risk,
+                    request.expires_at.format("%H:%M:%S")
+                ),
+                style,
+            )));
+            if !request.preview.is_empty() {
+                lines.push(Line::from(Span::styled(
+                    format!(
+                        "    {}",
+                        request.preview.chars().take(160).collect::<String>()
+                    ),
+                    Style::default().fg(theme.secondary),
+                )));
+            }
+        }
+        if !self.approval_status.is_empty() {
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                self.approval_status.clone(),
+                Style::default().fg(theme.accent),
+            )));
+        }
+        f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
+    }
+
+    fn handle_approvals_key(&mut self, key: KeyEvent) -> Result<()> {
+        match key.code {
+            KeyCode::Esc => {
+                self.approvals_open = false;
+                self.approval_status.clear();
+            }
+            KeyCode::Up => self.approval_selected = self.approval_selected.saturating_sub(1),
+            KeyCode::Down => {
+                if !self.approvals.is_empty() {
+                    self.approval_selected =
+                        (self.approval_selected + 1).min(self.approvals.len() - 1);
+                }
+            }
+            KeyCode::Char('r') => {
+                self.refresh_approvals();
+                self.approval_status = "refreshed".into();
+            }
+            KeyCode::Char('a') | KeyCode::Char('d') => {
+                let approve = key.code == KeyCode::Char('a');
+                let Some(request) = self.approvals.get(self.approval_selected).cloned() else {
+                    return Ok(());
+                };
+                let Some(broker) = self.approval_broker() else {
+                    self.approval_status = "cannot open approval store".into();
+                    return Ok(());
+                };
+                let actor = std::env::var("USER").unwrap_or_else(|_| "local-user".into());
+                match if approve {
+                    broker.approve(&request.id, &actor).map(|_| "approved")
+                } else {
+                    broker.deny(&request.id, &actor).map(|_| "denied")
+                } {
+                    Ok(outcome) => {
+                        self.approval_status = format!("{} {}", outcome, request.id);
+                        self.refresh_approvals();
+                    }
+                    Err(error) => self.approval_status = error,
+                }
+            }
+            _ => {}
+        }
+        Ok(())
     }
 
     fn draw_copy(&mut self, f: &mut Frame, body: Rect, theme: &Theme) {
@@ -1324,6 +1469,9 @@ impl App {
         // identically to Ctrl+<letter>, so such chords would either be
         // unreachable or steal keystrokes from the shell.
         //
+        if self.approvals_open {
+            return self.handle_approvals_key(key);
+        }
         if self.copy.is_some() {
             return self.handle_copy_key(key);
         }

@@ -235,6 +235,12 @@ actions![
         false
     ),
     (
+        "agents.approvals",
+        "Open the agent approval inbox",
+        "agent",
+        false
+    ),
+    (
         "agents.approve",
         "Approve the focused request",
         "agent",
@@ -361,6 +367,7 @@ pub fn default_keybindings() -> BTreeMap<String, String> {
         ("alt+right", "tab.next"),
         ("alt+o", "pane.next"),
         ("alt+v", "agents.dashboard"),
+        ("alt+a", "agents.approvals"),
         ("alt+h", "home.open"),
         ("ctrl+space", "leader"),
     ]
