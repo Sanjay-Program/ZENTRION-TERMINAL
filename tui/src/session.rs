@@ -303,6 +303,16 @@ impl Session {
         &self.block_outputs
     }
 
+    /// Full scrollback plus the live screen, used by copy mode.
+    pub fn full_text(&mut self) -> String {
+        let saved = self.scroll_offset;
+        let max = self.parser.screen().scrollback_len();
+        self.parser.screen_mut().set_scrollback(max);
+        let text = self.parser.screen().contents();
+        self.parser.screen_mut().set_scrollback(saved);
+        text
+    }
+
     fn push_block(&mut self, block: Block, output: Vec<u8>) {
         if block.command.trim().is_empty() {
             return;

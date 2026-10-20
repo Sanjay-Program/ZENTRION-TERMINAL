@@ -36,6 +36,9 @@ PTY, tabs, splits, and a local control plane.
   cursor addressing, Unicode and resize all work.
 - **Tabs and panes.** Up to four panes per tab, unlimited tabs. Each pane has
   its own process, history and scrollback (10,000 lines).
+- **Copy mode and links.** `F12` opens vi-style copy mode over scrollback
+  (`hjkl`, `w/b`, `0/$`, `g/G`, `/` search, `v` select, `y` yank via OSC 52).
+  `o` shows an exact http/https/mailto target and opens it only after Enter.
 - **Durable sessions + command blocks.** `z session create` owns a PTY in a
   per-user daemon; attach, detach, or `z session attach` from another terminal.
   Shell integration emits OSC 133 marks, so commands become blocks with cwd,

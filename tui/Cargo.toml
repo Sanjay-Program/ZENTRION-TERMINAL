@@ -19,6 +19,7 @@ z-core = { version = "0.1.0", path = "../core" }
 ai = { version = "0.1.0", path = "../ai" }
 serde_yaml.workspace = true
 chrono.workspace = true
+base64.workspace = true
 z-vt = { path = "../z-vt" }
 z-blocks = { path = "../z-blocks" }
 z-session = { path = "../z-session" }

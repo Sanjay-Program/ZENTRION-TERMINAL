@@ -6,6 +6,7 @@
 
 mod chat;
 mod copilot;
+mod copy;
 mod editor;
 mod research;
 mod session;
@@ -34,7 +35,7 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph, Tabs, Wrap},
     Frame, Terminal,
 };
-use std::io::{stdout, Stdout};
+use std::io::{stdout, Stdout, Write};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use sysinfo::System;
@@ -175,7 +176,14 @@ pub struct App {
     research: research::ResearchState,
 
     keymap: z_config::Keymap,
+    copy: Option<copy::CopyBuffer>,
+    copy_search: bool,
+    copy_query: String,
+    copy_status: String,
+    pending_link: Option<String>,
+    allowed_schemes: Vec<String>,
     show_blocks: bool,
+    persisted_blocks: Vec<(z_blocks::Block, String)>,
     block_query: String,
     block_selected: usize,
     block_scroll: usize,
@@ -199,9 +207,15 @@ impl App {
             .unwrap_or_else(|_| ".".into());
         let config_dir = z_core::config::user_config_dir().unwrap_or_else(|| PathBuf::from("."));
         let data_dir = z_core::config::user_data_dir().unwrap_or_else(|| PathBuf::from("."));
-        let keymap = z_config::load(&z_config::LoadOptions::with_env())
+        let loaded_config = z_config::load(&z_config::LoadOptions::with_env()).ok();
+        let allowed_schemes = loaded_config
+            .as_ref()
+            .map(|loaded| loaded.config.ui.hyperlink_schemes.clone())
+            .unwrap_or_else(|| vec!["https".into(), "http".into(), "mailto".into()]);
+        let keymap = loaded_config
+            .as_ref()
             .map(|loaded| loaded.keymap().0)
-            .unwrap_or_else(|_| {
+            .unwrap_or_else(|| {
                 z_config::Keymap::from_table(&z_config::keys::default_keybindings()).0
             });
         let mut app = Self {
@@ -225,7 +239,14 @@ impl App {
             chat: chat::ChatState::default(),
             research: research::ResearchState::default(),
             keymap,
+            copy: None,
+            copy_search: false,
+            copy_query: String::new(),
+            copy_status: String::new(),
+            pending_link: None,
+            allowed_schemes,
             show_blocks: false,
+            persisted_blocks: Vec::new(),
             block_query: String::new(),
             block_selected: 0,
             block_scroll: 0,
@@ -608,6 +629,9 @@ impl App {
         if self.show_blocks {
             self.draw_blocks(f, body, &theme);
         }
+        if self.copy.is_some() {
+            self.draw_copy(f, body, &theme);
+        }
 
         if self.show_palette {
             self.draw_palette(f, body, &theme);
@@ -697,7 +721,7 @@ impl App {
         } else if self.show_sysmon {
             "System monitor: Esc closes".to_string()
         } else if self.view == View::Terminal {
-            "F7 tab · F8 split · F9 close · F2 palette · F3 editor · F4 AI · F5 monitor · F6 chat · F11 blocks/search · Alt+V dashboard · F10 quit"
+            "F7 tab · F8 split · F9 close · F2 palette · F3 editor · F4 AI · F5 monitor · F6 chat · F11 blocks/search · F12 copy · Alt+V dashboard · F10 quit"
                 .to_string()
         } else {
             "1-0 views · Tab next · Alt+1..0 jump · Alt+H home · Alt+V terminal · F2 palette · F10 quit".to_string()
@@ -804,11 +828,29 @@ impl App {
                 self.set_view(View::Chat);
                 true
             }
+            "copy_mode.toggle" => {
+                if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+                    if let Some(session) = tab.sessions.get_mut(tab.focus) {
+                        let text = session.full_text();
+                        self.copy = Some(copy::CopyBuffer::from_text(&text));
+                        self.copy_search = false;
+                        self.copy_query.clear();
+                        self.copy_status = format!(
+                            "copy mode: {} lines · v select · y yank · / search · q quit",
+                            text.lines().count().max(1)
+                        );
+                        self.show_blocks = false;
+                        return Ok(true);
+                    }
+                }
+                false
+            }
             "search.open" | "search.all" | "blocks.toggle" => {
                 self.show_blocks = true;
                 self.block_query.clear();
                 self.block_selected = 0;
                 self.block_scroll = 0;
+                self.refresh_persisted_blocks();
                 true
             }
             "home.open" | "dashboard.open" => {
@@ -818,6 +860,238 @@ impl App {
             _ => false,
         };
         Ok(handled)
+    }
+
+    fn draw_copy(&mut self, f: &mut Frame, body: Rect, theme: &Theme) {
+        let Some(copy) = self.copy.as_ref() else {
+            return;
+        };
+        let popup = centered_rect(body, 92, 86);
+        f.render_widget(Clear, popup);
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(theme.accent))
+            .title(format!(
+                " Copy · line {}/{} · col {} ",
+                copy.row + 1,
+                copy.lines.len(),
+                copy.col + 1
+            ));
+        let inner = block.inner(popup);
+        f.render_widget(block, popup);
+        if inner.height < 3 || inner.width < 10 {
+            return;
+        }
+        let visible = inner.height.saturating_sub(2) as usize;
+        let start = if copy.row >= visible {
+            copy.row + 1 - visible
+        } else {
+            0
+        };
+        let width = inner.width.saturating_sub(7) as usize;
+        let col_offset = copy.col.saturating_sub(width.saturating_sub(1));
+        let mut lines = Vec::new();
+        for index in start..(start + visible).min(copy.lines.len()) {
+            let line = &copy.lines[index];
+            let chars: Vec<char> = line.chars().skip(col_offset).take(width).collect();
+            let mut spans: Vec<Span> = Vec::new();
+            spans.push(Span::styled(
+                format!("{:>4} ", index + 1),
+                Style::default().fg(theme.secondary),
+            ));
+            let mut run = String::new();
+            let mut run_selected: Option<bool> = None;
+            for (offset, ch) in chars.iter().enumerate() {
+                let col = col_offset + offset;
+                let selected = copy.is_selected(index, col);
+                if run_selected == Some(selected) {
+                    run.push(*ch);
+                } else {
+                    if let Some(previous) = run_selected.take() {
+                        spans.push(Span::styled(
+                            std::mem::take(&mut run),
+                            if previous {
+                                Style::default().fg(theme.background).bg(theme.primary)
+                            } else {
+                                Style::default().fg(theme.text)
+                            },
+                        ));
+                    }
+                    run.push(*ch);
+                    run_selected = Some(selected);
+                }
+            }
+            if let Some(previous) = run_selected {
+                spans.push(Span::styled(
+                    run,
+                    if previous {
+                        Style::default().fg(theme.background).bg(theme.primary)
+                    } else {
+                        Style::default().fg(theme.text)
+                    },
+                ));
+            }
+            lines.push(Line::from(spans));
+        }
+        f.render_widget(Paragraph::new(lines), inner);
+        let cursor_row = copy
+            .row
+            .saturating_sub(start)
+            .min(visible.saturating_sub(1));
+        let cursor_col = copy
+            .col
+            .saturating_sub(col_offset)
+            .min(width.saturating_sub(1));
+        f.set_cursor_position((inner.x + 5 + cursor_col as u16, inner.y + cursor_row as u16));
+        let status = if let Some(target) = &self.pending_link {
+            format!("Open {target}? Enter/y to open · Esc/n to cancel")
+        } else if self.copy_search {
+            format!(
+                "/{}  (Enter search · Esc cancel · matches {})",
+                self.copy_query,
+                copy.matches.len()
+            )
+        } else if !self.copy_status.is_empty() {
+            self.copy_status.clone()
+        } else {
+            "h/j/k/l · w/b · 0/$ · g/G · v select · y yank · / search · n/N · q quit".into()
+        };
+        let status_line = Line::from(Span::styled(status, Style::default().fg(theme.secondary)));
+        let status_area = Rect {
+            x: inner.x,
+            y: inner.y + inner.height.saturating_sub(1),
+            width: inner.width,
+            height: 1,
+        };
+        f.render_widget(Paragraph::new(status_line), status_area);
+    }
+
+    fn handle_copy_key(&mut self, key: KeyEvent) -> Result<()> {
+        let Some(copy) = self.copy.as_mut() else {
+            return Ok(());
+        };
+        if let Some(target) = self.pending_link.clone() {
+            match key.code {
+                KeyCode::Enter | KeyCode::Char('y') => {
+                    self.pending_link = None;
+                    match open_url(&target) {
+                        Ok(()) => self.copy_status = format!("opened {target}"),
+                        Err(error) => self.copy_status = format!("cannot open: {error}"),
+                    }
+                }
+                KeyCode::Esc | KeyCode::Char('n') => {
+                    self.pending_link = None;
+                    self.copy_status = "link cancelled".into();
+                }
+                _ => {}
+            }
+            return Ok(());
+        }
+        if self.copy_search {
+            match key.code {
+                KeyCode::Enter => {
+                    self.copy_search = false;
+                    if copy.search(&self.copy_query) {
+                        self.copy_status = format!("{} match(es)", copy.matches.len());
+                    } else {
+                        self.copy_status = format!("no matches for `{}`", self.copy_query);
+                    }
+                }
+                KeyCode::Esc => {
+                    self.copy_search = false;
+                    self.copy_query.clear();
+                }
+                KeyCode::Backspace => {
+                    self.copy_query.pop();
+                }
+                KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    if self.copy_query.len() < 200 {
+                        self.copy_query.push(c);
+                    }
+                }
+                _ => {}
+            }
+            return Ok(());
+        }
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('q') | KeyCode::F(12) => {
+                self.copy = None;
+                self.copy_status.clear();
+            }
+            KeyCode::Char('h') | KeyCode::Left => copy.move_left(),
+            KeyCode::Char('j') | KeyCode::Down => copy.move_down(),
+            KeyCode::Char('k') | KeyCode::Up => copy.move_up(),
+            KeyCode::Char('l') | KeyCode::Right => copy.move_right(),
+            KeyCode::Char('w') => copy.word_forward(),
+            KeyCode::Char('b') => copy.word_backward(),
+            KeyCode::Char('0') | KeyCode::Home => copy.line_start(),
+            KeyCode::Char('$') | KeyCode::End => copy.line_end(),
+            KeyCode::Char('g') => copy.top(),
+            KeyCode::Char('G') => copy.bottom(),
+            KeyCode::PageUp => {
+                for _ in 0..20 {
+                    copy.move_up();
+                }
+            }
+            KeyCode::PageDown => {
+                for _ in 0..20 {
+                    copy.move_down();
+                }
+            }
+            KeyCode::Char('v') => copy.toggle_anchor(),
+            KeyCode::Char('n') => {
+                if copy.next_match() {
+                    self.copy_status = "next match".into();
+                } else {
+                    self.copy_status = "no active search".into();
+                }
+            }
+            KeyCode::Char('N') => {
+                if copy.previous_match() {
+                    self.copy_status = "previous match".into();
+                } else {
+                    self.copy_status = "no active search".into();
+                }
+            }
+            KeyCode::Char('/') => {
+                self.copy_search = true;
+                self.copy_query.clear();
+            }
+            KeyCode::Char('o') => {
+                let line = copy.line().to_string();
+                let scheme = &self.allowed_schemes;
+                let link = z_vt::detect_links(&line)
+                    .into_iter()
+                    .find(|link| z_vt::is_safe_scheme(&link.target, scheme));
+                match link {
+                    Some(link) => {
+                        self.copy_status =
+                            format!("Open {}? Enter/y to open · Esc/n to cancel", link.target);
+                        self.pending_link = Some(link.target);
+                    }
+                    None => {
+                        self.copy_status = "no safe http/https/mailto link on this line".into();
+                    }
+                }
+            }
+            KeyCode::Char('y') => {
+                let text = copy
+                    .selected_text()
+                    .or_else(|| Some(copy.line().to_string()))
+                    .unwrap_or_default();
+                let chars = text.chars().count();
+                match copy_to_clipboard(&text) {
+                    Ok(()) => {
+                        self.copy_status = format!(
+                            "yanked {chars} chars via OSC 52 (terminal must allow clipboard writes)"
+                        );
+                    }
+                    Err(error) => self.copy_status = format!("clipboard failed: {error}"),
+                }
+            }
+            _ => {}
+        }
+        Ok(())
     }
 
     fn draw_blocks(&self, f: &mut Frame, body: Rect, theme: &Theme) {
@@ -866,7 +1140,7 @@ impl App {
         let block = Block::default()
             .borders(Borders::ALL)
             .border_style(Style::default().fg(theme.primary))
-            .title(" Blocks / Search — ↑↓ select · Enter rerun · Esc close ");
+            .title(" Blocks / Search (session + saved) — ↑↓ select · Enter rerun · Esc close ");
         let inner = block.inner(popup);
         f.render_widget(block, popup);
         f.render_widget(
@@ -878,24 +1152,59 @@ impl App {
     }
 
     fn filtered_blocks(&self) -> Vec<(z_blocks::Block, String)> {
-        let Some(tab) = self.tabs.get(self.active_tab) else {
-            return Vec::new();
-        };
-        let Some(session) = tab.sessions.get(tab.focus) else {
-            return Vec::new();
-        };
         let query = self.block_query.to_ascii_lowercase();
-        session
-            .blocks()
-            .iter()
-            .zip(session.block_outputs().iter())
-            .filter(|(block, output)| {
-                query.is_empty()
-                    || block.command.to_ascii_lowercase().contains(&query)
-                    || output.to_ascii_lowercase().contains(&query)
-            })
-            .map(|(block, output)| (block.clone(), output.clone()))
-            .collect()
+        let mut blocks: Vec<(z_blocks::Block, String)> = Vec::new();
+        if let Some(tab) = self.tabs.get(self.active_tab) {
+            if let Some(session) = tab.sessions.get(tab.focus) {
+                for (block, output) in session.blocks().iter().zip(session.block_outputs().iter()) {
+                    if query.is_empty()
+                        || block.command.to_ascii_lowercase().contains(&query)
+                        || output.to_ascii_lowercase().contains(&query)
+                    {
+                        blocks.push((block.clone(), output.clone()));
+                    }
+                }
+            }
+        }
+        for (block, output) in &self.persisted_blocks {
+            if query.is_empty()
+                || block.command.to_ascii_lowercase().contains(&query)
+                || output.to_ascii_lowercase().contains(&query)
+            {
+                if !blocks.iter().any(|(local, _)| local.id == block.id) {
+                    blocks.push((block.clone(), output.clone()));
+                }
+            }
+        }
+        blocks
+    }
+
+    fn refresh_persisted_blocks(&mut self) {
+        self.persisted_blocks.clear();
+        let path = self.data_dir.join("blocks.db");
+        if !path.exists() {
+            return;
+        }
+        let Ok(store) = z_blocks::BlockStore::open(&path) else {
+            return;
+        };
+        if self.block_query.trim().is_empty() {
+            let filter = z_blocks::BlockFilter {
+                limit: Some(40),
+                ..Default::default()
+            };
+            if let Ok(blocks) = store.list(&filter) {
+                self.persisted_blocks = blocks
+                    .into_iter()
+                    .map(|block| (block, String::new()))
+                    .collect();
+            }
+        } else if let Ok(hits) = store.search(&self.block_query, 40) {
+            self.persisted_blocks = hits
+                .into_iter()
+                .map(|hit| (hit.block, hit.snippet))
+                .collect();
+        }
     }
 
     fn handle_blocks_key(&mut self, key: KeyEvent) -> Result<()> {
@@ -917,6 +1226,7 @@ impl App {
             KeyCode::Backspace => {
                 self.block_query.pop();
                 self.block_selected = 0;
+                self.refresh_persisted_blocks();
             }
             KeyCode::Enter => {
                 if let Some((block, _)) = entries.get(self.block_selected) {
@@ -933,6 +1243,7 @@ impl App {
                 if self.block_query.len() < 200 {
                     self.block_query.push(c);
                     self.block_selected = 0;
+                    self.refresh_persisted_blocks();
                 }
             }
             _ => {}
@@ -1013,6 +1324,9 @@ impl App {
         // identically to Ctrl+<letter>, so such chords would either be
         // unreachable or steal keystrokes from the shell.
         //
+        if self.copy.is_some() {
+            return self.handle_copy_key(key);
+        }
         // The palette is modal.
         if self.show_palette {
             if key.code == KeyCode::F(2) {
@@ -1445,6 +1759,34 @@ fn pane_areas(area: Rect, count: usize) -> Vec<Rect> {
             vec![top[0], top[1], bottom[0], bottom[1]]
         }
     }
+}
+
+fn open_url(target: &str) -> std::io::Result<()> {
+    // Only http(s)/mailto reach here; never pass through a shell.
+    let (program, args): (&str, Vec<&str>) = if cfg!(target_os = "macos") {
+        ("open", vec![target])
+    } else if cfg!(windows) {
+        ("cmd", vec!["/C", "start", "", target])
+    } else {
+        ("xdg-open", vec![target])
+    };
+    let status = std::process::Command::new(program).args(args).status()?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("{program} exited with {status}"),
+        ))
+    }
+}
+
+fn copy_to_clipboard(text: &str) -> std::io::Result<()> {
+    use base64::Engine;
+    let encoded = base64::engine::general_purpose::STANDARD.encode(text.as_bytes());
+    let mut out = stdout();
+    write!(out, "\x1b]52;c;{encoded}\x07")?;
+    out.flush()
 }
 
 fn key_chord(key: &KeyEvent) -> Option<z_config::KeyChord> {

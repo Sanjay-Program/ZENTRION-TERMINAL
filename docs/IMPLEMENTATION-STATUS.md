@@ -29,9 +29,10 @@ Legend: **implemented** · **partial** (working with a stated limit) ·
 | Security engagements, scope guard, evidence chain, findings, signed reports | implemented | `z-security` | 21 tests: wildcard/CIDR/ports/out-of-scope, break-glass, pre-execution blocking, Ed25519 evidence chain, tamper detection, signed markdown/HTML. It does not bundle scanners; it governs commands you run. |
 | Agent adapters, profiles, approval broker, supervisor, MCP server | implemented (foreground) | `z-agents` | 21 tests: pattern parsing, policy denial, single-use tokens/replay, audit, PTY agent run, MCP tool calls, path escape, approval-required path. Agents run in the CLI process, not the session daemon, so they are not durable across a UI restart. |
 | Agent policy actions | implemented | `z-policy` | `agent.tool.call`, `agent.fs.*`, `agent.exec`, `agent.shell`, `agent.net`, `agent.secret.read`; deny by default. |
-| TUI blocks, in-session search, rerun, OSC 9;4 progress | partial | `tui` | Shell integration and blocks are wired into TUI sessions; `F11` opens a block/search overlay with rerun. Persisted block search and a full approval modal are CLI-only. |
+| TUI blocks, global search, rerun, OSC 9;4 progress | implemented (session-local + persisted search) | `tui` | Shell integration and blocks are wired into TUI sessions; `F11` searches both the live session and the persisted SQLite block store and can rerun a command. A full approval modal is still CLI-only. |
+| Copy mode, vi motions, OSC 52 clipboard | implemented (line-based) | `tui/src/copy.rs` | Six unit tests for motions, inclusive Unicode-safe selections and search/wrap. `F12` opens copy mode, `v` selects, `y` yanks via OSC 52. Rectangular block selection is not implemented. |
+| Hyperlink confirmation | implemented (copy mode) | `tui` | `o` detects a safe http/https/mailto link on the cursor line, shows the exact target, and opens it only on Enter/y using the OS opener. No auto-open and no shell. File links are detected by `z-vt` but are not opened from the TUI yet. |
 | Desktop notifications, badges | partial | OSC 9/9;4 parsed; TUI title shows progress | No OS notification integration, no tab badge rollup. |
-| Copy mode / vi motions | not started | — | The blueprint's copy mode is not implemented; terminal text selection in the TUI is not yet a feature. |
 | GPU renderer | not started | — | `z ui` remains ratatui; `ui.gpu` is a config field only. |
 | Remote SSH domains, durable remote sessions, SFTP | not started | — | System `ssh` can still be run inside a shell, but there is no `z-remote`. |
 | Web client / sharing | not started | — | No HTTP/WS listener. `remote.web_*` config is validated but unused. |
@@ -77,10 +78,10 @@ All destructive or agentic paths are deny-by-default and audited:
 
 1. **TUI keybindings are only partly rebindable.** Bound F-key and Alt+
    actions now dispatch through the loaded keymap (palette, tabs, panes,
-   editor, copilot, monitor, chat, blocks/search, quit, tab select/next/prev,
-   pane next). Actions with no TUI implementation — copy mode, agent dashboard,
-   workspace save/open, font scaling — fall through or do nothing, so the “every
-   action rebindable” criterion is not fully met.
+   editor, copilot, monitor, chat, blocks/search, copy mode, quit, tab
+   select/next/prev, pane next). Actions with no TUI implementation — agent
+   dashboard, workspace save/open, font scaling — fall through or do nothing,
+   so the “every action rebindable” criterion is not fully met.
 2. **Agents are not daemon-owned.** `z agent run` owns the PTY in-process.
    Closing the CLI ends the agent. Session daemon integration is future work.
 3. **State detection is approximate.** Adapter manifests support `hooks` and
