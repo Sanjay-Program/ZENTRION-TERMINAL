@@ -239,6 +239,7 @@ z upgrade check
 - [Architecture](docs/architecture/overview.md)
 - [Security model](docs/SECURITY_MODEL.md)
 - [Tools](docs/tools/README.md)
+- [Competitive roadmap](docs/COMPETITIVE-ROADMAP.md) — what to build next to lead the market
 - [Documentation index](docs/DOCUMENTATION_INDEX.md)
 
 ## 🧪 Build & test

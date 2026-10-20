@@ -6,6 +6,10 @@
 - [Quickstart](QUICKSTART.md)
 - [Release readiness](RELEASE_READINESS.md)
 
+## Strategy
+
+- [Competitive roadmap](COMPETITIVE-ROADMAP.md) — market research, priorities and 12-week plan
+
 ## Runtime
 
 - [README](../README.md)
