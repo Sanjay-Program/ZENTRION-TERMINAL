@@ -4548,6 +4548,7 @@ dependencies = [
  "z-session",
  "z-tool",
  "z-version",
+ "z-web",
  "z-workflow",
 ]
 
@@ -4803,6 +4804,18 @@ dependencies = [
  "thiserror 1.0.69",
  "vt100",
  "vte",
+]
+
+[[package]]
+name = "z-web"
+version = "0.1.0"
+dependencies = [
+ "base64 0.21.7",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
+ "z-core",
 ]
 
 [[package]]

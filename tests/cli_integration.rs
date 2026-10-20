@@ -1074,3 +1074,93 @@ fn remote_exec_and_upload_use_openssh_with_strict_host_keys() {
     assert!(out.status.success());
     assert!(String::from_utf8_lossy(&out.stdout).contains("-p 2222"));
 }
+
+#[test]
+fn web_observer_serves_read_only_and_write_tokens() {
+    if !cfg!(unix) {
+        return;
+    }
+    let env = Env::new("web");
+    let root = env.project();
+    let socket = env.dir.join("session.sock");
+    let mut cmd = env.cmd_in(&root);
+    cmd.env("ZENTRION_SESSION_SOCKET", &socket);
+    let out = cmd
+        .args([
+            "session",
+            "create",
+            "--shell",
+            "/bin/bash",
+            "--cwd",
+            root.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let sid = String::from_utf8_lossy(&out.stdout).trim().to_string();
+
+    let mut server = env.cmd_in(&root);
+    server.env("ZENTRION_SESSION_SOCKET", &socket);
+    server
+        .args(["web", "serve", "--allow-input"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    let mut child = server.spawn().expect("spawn web server");
+    let token_path = env.dir.join("data/web/tokens.json");
+    let mut tokens = serde_json::Value::Null;
+    for _ in 0..50 {
+        if let Ok(text) = std::fs::read_to_string(&token_path) {
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) {
+                tokens = value;
+                break;
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    assert!(!tokens.is_null(), "web token file was not written");
+    let read = tokens["read"].as_str().unwrap();
+    let write = tokens["write"].as_str().unwrap();
+    let base = tokens["read_url"]
+        .as_str()
+        .unwrap()
+        .split("/?")
+        .next()
+        .unwrap();
+    let script = r#"
+import json, sys, urllib.request, urllib.parse, base64, time
+base, sid, read, write = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+def get(path, token):
+    separator = '&' if '?' in path else '?'
+    return json.load(urllib.request.urlopen(base + path + separator + 'token=' + urllib.parse.quote(token)))
+sessions = get('/api/sessions', read)
+assert any(s['id'] == sid for s in sessions), sessions
+payload = base64.b64encode(b'echo web-e2e\r').decode()
+req = urllib.request.Request(base + '/api/input?token=' + urllib.parse.quote(write), data=json.dumps({'session_id': sid, 'data': payload}).encode(), headers={'content-type': 'application/json'})
+assert urllib.request.urlopen(req).status == 200
+time.sleep(0.7)
+snapshot = get('/api/session/' + sid, read)
+assert 'web-e2e' in snapshot['contents'], snapshot['contents']
+print('ok')
+"#;
+    let output = Command::new("python3")
+        .args(["-c", script, base, &sid, read, write])
+        .output()
+        .expect("python3 is required for the web test");
+    let _ = child.kill();
+    let _ = child.wait();
+    let mut cmd = env.cmd_in(&root);
+    cmd.env("ZENTRION_SESSION_SOCKET", &socket);
+    cmd.args(["session", "close", &sid, "--force"]);
+    let _ = cmd.status();
+    let mut cmd = env.cmd_in(&root);
+    cmd.env("ZENTRION_SESSION_SOCKET", &socket);
+    cmd.args(["session", "stop"]);
+    let _ = cmd.status();
+    assert!(
+        output.status.success(),
+        "web test failed: {}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("ok"));
+}

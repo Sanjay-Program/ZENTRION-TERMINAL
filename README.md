@@ -46,6 +46,10 @@ PTY, tabs, splits, and a local control plane.
 - **Workspaces and restore plans.** YAML tabs/panes/layouts with
   `never|layout|layout+cwd|full` restore; commands only auto-run with explicit
   opt-in. `z workspace restore --dry-run` shows the plan first.
+- **Web observer.** `z web serve` starts a loopback-only HTTP observer with
+  read-only and optional write tokens, session selection and plain-text screens
+  in a browser. It is an observer, not a full xterm renderer; there is no TLS,
+  WebSocket streaming or inbound exposure.
 - **Remote SSH.** `z remote exec|shell|upload|download|forward` uses system
   OpenSSH with strict host-key verification, jump hosts, identity files and
   detached local port forwards. Remote shells run as daemon-owned command
@@ -124,9 +128,9 @@ PTY, tabs, splits, and a local control plane.
 - **Sessions are Unix-only.** The daemon/client use a Unix socket; the Windows
   named-pipe transport is not implemented. Raw scrollback is not persisted
   across a daemon restart (blocks are).
-- **No GPU renderer, web client, plugin runtime, durable remote daemon or team
-  control plane yet.** The design for them is in the blueprint, not in this
-  binary.
+- **No GPU renderer, plugin runtime, durable remote daemon or team control
+  plane yet.** The web observer is a plain-text loopback viewer, not a full
+  browser terminal.
 - **Checkpoint accept is file-level.** Hunks are displayed, but there is no
   "accept this hunk only" operation.
 - **Model streaming is not implemented.** Model completions wait for the full

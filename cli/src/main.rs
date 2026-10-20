@@ -405,6 +405,12 @@ enum Commands {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
+
+    /// Loopback web observer with read-only and write tokens
+    Web {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
 }
 
 fn main() {
@@ -575,6 +581,7 @@ fn main() {
         Some(Commands::Engagement { args }) => terminal_cmd::engagement(&args, cli.json),
         Some(Commands::Models { args }) => terminal_cmd::models(&args, cli.json),
         Some(Commands::Remote { args }) => terminal_cmd::remote(&args, cli.json),
+        Some(Commands::Web { args }) => terminal_cmd::web(&args, cli.json),
         Some(Commands::Do { intent }) => {
             subsystems_cmd::do_intent(&intent, cli.project.clone(), cli.json)
         }

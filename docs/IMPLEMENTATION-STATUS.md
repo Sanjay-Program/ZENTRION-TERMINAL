@@ -36,7 +36,7 @@ Legend: **implemented** · **partial** (working with a stated limit) ·
 | Desktop notifications, tab badges | implemented (optional desktop integration) | `tui` | OSC 9 shows a footer banner and a per-tab unread/failed badge; `ui.desktop_notifications = true` invokes `notify-send` (Linux) or `osascript` (macOS). No sound, focus detection or per-approval badges yet. |
 | GPU renderer | not started | — | `z ui` remains ratatui; `ui.gpu` is a config field only. |
 | Remote SSH execution, shells, transfers, forwarding | partial | `z-remote` | 12 unit tests plus a fake-OpenSSH CLI test. Strict host-key verification is always on; jump hosts, identity, port, scp upload/download and detached local port forwards are implemented. Remote shells run as daemon-owned command sessions. **Not implemented:** native SSH (uses system OpenSSH), durable remote daemons/sessions, SFTP protocol, web client. |
-| Web client / sharing | not started | — | No HTTP/WS listener. `remote.web_*` config is validated but unused. |
+| Web observer / sharing | partial | `z-web`, `z web serve` | Loopback-only HTTP server with separate read-only and optional write tokens, session list, plain-text screen snapshots (500 ms polling), optional input and an embedded no-ANSI page. 2 unit tests plus an end-to-end CLI test. **Not implemented:** xterm.js/colors/cursor fidelity, WebSocket/SSE streaming, TLS, multi-user/RBAC/IPv6+proxy deployment. |
 | Team sync, SSO/SCIM/RBAC, fleet policy | not started | — | Existing enterprise stubs are unrelated to the blueprint control plane. |
 | wasm plugin host | not started | — | `plugin` only validates manifests; no runtime. |
 | Model router (registry, cost/latency/quality/local-first, budgets, fallback, cache) | implemented | `z-models` | 23 unit tests plus an end-to-end mock-provider CLI test. Durable daily ledger with hard reservations, per-agent budgets, atomic reservations, retries/fallback, persisted circuit breakers and secret-safe response caching. No streaming/cancellation or embeddings yet; the cache is process-local. |
@@ -60,6 +60,7 @@ z workflow  validate|run|list|show
 z engagement create|list|show|scope-check|run|evidence|note|verify|finding|findings|report
 z models    list|route|ask|usage|doctor
 z remote    hosts|exec|shell|upload|download|forward|forwards|stop-forward|hostkey|doctor
+z web       serve [--allow-input] [--bind 127.0.0.1:0] [--token-file PATH]
 z agent     adapters|profiles|list|dashboard|run|resume|fork|stop|approvals|approve|deny|trace
 z mcp       serve --agent <id> --profile <profile> --workspace <dir>
 z config    show|validate|paths|import|actions|keys|edit|init  (legacy get/set/secrets retained)

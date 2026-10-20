@@ -36,6 +36,14 @@
   redacted markdown/HTML reports.
 - Added Ed25519 signing to `z-identity` for checkpoint/evidence/report exports.
 
+### Web observer
+- Added `z-web` and `z web serve`: loopback-only HTTP observer with separate
+  read and write tokens, session list, plain-text screen snapshots, optional
+  input and an embedded no-ANSI page. Tokens are written to a `0600` file;
+  non-loopback binds are refused. Tests cover auth scopes, snapshots and input.
+- Not a full terminal renderer: no xterm.js/colors, WebSocket/SSE streaming or
+  TLS; documented as an observer.
+
 ### Remote SSH and notifications
 - Added `z-remote`: validated SSH destinations, system-OpenSSH execution,
   interactive remote shells as daemon-owned sessions, scp upload/download and
@@ -84,7 +92,7 @@
 - Fixed z-blocks compile errors and two recorder/store test failures.
 - Fixed bash integration to pass `--rcfile` as a separate argument.
 - Restored SIGPIPE defaults so piping into `head` does not panic.
-- Added 49 end-to-end CLI tests including sessions, context, checkpoints,
+- Added 50 end-to-end CLI tests including sessions, context, checkpoints,
   workflows and security scope blocking.
 - Added [Implementation status](docs/IMPLEMENTATION-STATUS.md) with explicit
   partial and unimplemented areas.

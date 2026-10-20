@@ -12,6 +12,7 @@ mod engagement;
 mod models;
 mod remote;
 mod session;
+mod web;
 mod workflow;
 
 pub use agent::{agent, mcp_serve};
@@ -21,6 +22,7 @@ pub use engagement::engagement;
 pub use models::models;
 pub use remote::remote;
 pub use session::{session, workspace};
+pub use web::web;
 pub use workflow::workflow;
 
 use serde_json::Value;
