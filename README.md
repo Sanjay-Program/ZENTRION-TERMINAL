@@ -46,6 +46,11 @@ PTY, tabs, splits, and a local control plane.
 - **Workspaces and restore plans.** YAML tabs/panes/layouts with
   `never|layout|layout+cwd|full` restore; commands only auto-run with explicit
   opt-in. `z workspace restore --dry-run` shows the plan first.
+- **Model router.** `z models list|route|ask|usage` reads a provider registry
+  (local Ollama, OpenAI, Anthropic, Gemini, OpenRouter, Groq, custom endpoints),
+  routes by local-only/local-first/cost/latency/quality/manual policy, reserves
+  a durable daily budget before every call, falls back on failure, opens a
+  circuit breaker and caches only prompts without detected secrets.
 - **Context engine.** `z context index` builds an incremental SQLite FTS5 index
   (git-aware, secret-excluding). `z context pack "query"` produces a
   deterministic, token-budgeted, redacted context pack with citations.
@@ -115,6 +120,9 @@ PTY, tabs, splits, and a local control plane.
   plane yet.** The design for them is in the blueprint, not in this binary.
 - **Checkpoint accept is file-level.** Hunks are displayed, but there is no
   "accept this hunk only" operation.
+- **Model streaming is not implemented.** Model completions wait for the full
+  response; there is no token stream or cancellation, and response caching is
+  process-local. Embeddings are not implemented.
 - **No performance numbers are claimed.** No benchmark harness has been run.
 - Plugins are validated (WASM header, manifest, SHA-256) but not executed;
   there is no embedded WASM runtime yet.

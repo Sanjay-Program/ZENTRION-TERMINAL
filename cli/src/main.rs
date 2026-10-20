@@ -392,6 +392,13 @@ enum Commands {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
+
+    /// Model registry, routing, budgets, usage and brokered completions
+    #[command(name = "models")]
+    Models {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
 }
 
 fn main() {
@@ -560,6 +567,7 @@ fn main() {
         Some(Commands::Checkpoint { args }) => terminal_cmd::checkpoint(&args, cli.json),
         Some(Commands::Workflow { args }) => terminal_cmd::workflow(&args, cli.json),
         Some(Commands::Engagement { args }) => terminal_cmd::engagement(&args, cli.json),
+        Some(Commands::Models { args }) => terminal_cmd::models(&args, cli.json),
         Some(Commands::Do { intent }) => {
             subsystems_cmd::do_intent(&intent, cli.project.clone(), cli.json)
         }

@@ -4,8 +4,9 @@
 //! (ZENTRION_CONFIG_DIR / ZENTRION_DATA_DIR) and assert on stdout, stderr
 //! and exit codes. No network is used.
 
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 fn z_bin() -> PathBuf {
     // target/<profile>/z, relative to the test binary location.
@@ -930,4 +931,75 @@ ui: {badge: SL, color: "#fff"}
     cmd.env("ZENTRION_SESSION_SOCKET", &socket);
     cmd.args(["session", "stop"]);
     let _ = cmd.status();
+}
+
+#[test]
+fn models_ask_uses_configured_provider_and_records_usage() {
+    let env = Env::new("models-ask");
+    let script = r#"
+import http.server, json, sys
+class H(http.server.BaseHTTPRequestHandler):
+    def do_POST(self):
+        n = int(self.headers.get("content-length", 0))
+        body = json.loads(self.rfile.read(n))
+        assert body["messages"][-1]["content"] == "hello models"
+        payload = json.dumps({
+            "choices": [{"message": {"content": "mock answer"}}],
+            "usage": {"prompt_tokens": 5, "completion_tokens": 3},
+        }).encode()
+        self.send_response(200)
+        self.send_header("content-type", "application/json")
+        self.send_header("content-length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+    def log_message(self, *args):
+        pass
+server = http.server.HTTPServer(("127.0.0.1", 0), H)
+print(server.server_port, flush=True)
+server.serve_forever()
+"#;
+    let mut child = Command::new("python3")
+        .args(["-u", "-c", script])
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("python3 is required for the mock provider");
+    let stdout = child.stdout.take().unwrap();
+    let mut reader = BufReader::new(stdout);
+    let mut port = String::new();
+    reader.read_line(&mut port).unwrap();
+    let port = port.trim().to_string();
+    assert!(!port.is_empty());
+    let config = env.dir.join("config/config.toml");
+    std::fs::write(
+        &config,
+        format!(
+            r#"
+[models]
+default = "local/test/mock"
+budget_usd_per_day = 0.0
+allow_cloud = false
+cache = false
+
+[models.providers."local/test"]
+kind = "local"
+models = ["mock"]
+caps = ["chat"]
+cost_per_mtok = 0.0
+context = 4096
+base_url = "http://127.0.0.1:{port}/v1"
+"#
+        ),
+    )
+    .unwrap();
+    let (out, err, code) = run(&env, &env.project(), &["models", "ask", "hello models"]);
+    let _ = child.kill();
+    let _ = child.wait();
+    assert_eq!(code, 0, "{err}");
+    assert!(out.contains("mock answer"), "{out}");
+    assert!(err.contains("local/test/mock"), "{err}");
+    let (out, _, code) = run(&env, &env.project(), &["--json", "models", "usage"]);
+    assert_eq!(code, 0);
+    let value: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(value["requests"], 1, "{value}");
+    assert_eq!(value["budget_usd"], 0.0);
 }

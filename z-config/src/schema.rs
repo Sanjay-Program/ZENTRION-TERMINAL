@@ -62,6 +62,12 @@ fn default_ssh() -> SshBackend {
 fn default_context_tokens() -> usize {
     32_768
 }
+fn default_max_output_tokens() -> u32 {
+    4_096
+}
+fn default_cache() -> bool {
+    true
+}
 fn default_max_file_bytes() -> u64 {
     512 * 1024
 }
@@ -271,8 +277,13 @@ pub struct ModelsConfig {
     pub default: String,
     pub fallback: Vec<String>,
     pub budget_usd_per_day: f64,
+    /// Optional per-agent daily budget caps (USD).
+    pub agent_budgets: BTreeMap<String, f64>,
     pub routing: ModelRouting,
     pub allow_cloud: bool,
+    pub max_output_tokens: u32,
+    /// Cache successful responses when the prompt carries no detected secrets.
+    pub cache: bool,
     /// Provider definitions keyed by id, e.g. `local/ollama`.
     pub providers: BTreeMap<String, ProviderConfig>,
 }
@@ -283,8 +294,11 @@ impl Default for ModelsConfig {
             default: default_model(),
             fallback: Vec::new(),
             budget_usd_per_day: default_budget(),
+            agent_budgets: BTreeMap::new(),
             routing: default_routing(),
             allow_cloud: false,
+            max_output_tokens: default_max_output_tokens(),
+            cache: default_cache(),
             providers: BTreeMap::new(),
         }
     }
@@ -297,10 +311,16 @@ pub struct ProviderConfig {
     pub models: Vec<String>,
     pub caps: Vec<String>,
     pub cost_per_mtok: f64,
+    /// Optional output-token price; defaults to `cost_per_mtok`.
+    pub output_cost_per_mtok: Option<f64>,
     pub context: usize,
     pub base_url: Option<String>,
     /// Name of an environment variable holding the API key. Never the key.
     pub api_key_env: Option<String>,
+    /// Advertised latency for routing; local providers default to 50 ms.
+    pub latency_ms: Option<u64>,
+    /// Advertised quality score (1–100) for quality routing.
+    pub quality: Option<u8>,
 }
 
 impl Default for ProviderConfig {
@@ -310,9 +330,12 @@ impl Default for ProviderConfig {
             models: Vec::new(),
             caps: vec!["chat".into()],
             cost_per_mtok: 0.0,
+            output_cost_per_mtok: None,
             context: 32_768,
             base_url: None,
             api_key_env: None,
+            latency_ms: None,
+            quality: None,
         }
     }
 }

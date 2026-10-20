@@ -36,6 +36,20 @@
   redacted markdown/HTML reports.
 - Added Ed25519 signing to `z-identity` for checkpoint/evidence/report exports.
 
+### Model router and budgets
+- Added `z-models`: built-in provider registry (Ollama, OpenAI, Anthropic,
+  Gemini, OpenRouter, Groq, custom endpoints), model-reference resolution and
+  policy routing (manual/local-only/local-first/cost/latency/quality).
+- Added a durable daily usage ledger with hard pre-call reservations,
+  per-agent budgets, per-session/task accounting and atomic, locked writes.
+- Added ordered fallback, retries with jitter, persisted circuit breakers and
+  an in-process response cache that refuses to cache prompts with detected
+  secrets.
+- Added OpenAI-compatible and Anthropic transports; credentials are read from
+  the configured environment variable and never logged.
+- Added `z models list|route|ask|usage|doctor` and an end-to-end mock-provider
+  CLI test proving completion, costing and usage recording.
+
 ### Daemon-owned agents and approvals
 - Moved the agent supervisor into the session daemon: `z agent run --detach`
   keeps running after the CLI exits; `z agent list/dashboard` reports live
@@ -59,7 +73,7 @@
 - Fixed z-blocks compile errors and two recorder/store test failures.
 - Fixed bash integration to pass `--rcfile` as a separate argument.
 - Restored SIGPIPE defaults so piping into `head` does not panic.
-- Added 46 end-to-end CLI tests including sessions, context, checkpoints,
+- Added 48 end-to-end CLI tests including sessions, context, checkpoints,
   workflows and security scope blocking.
 - Added [Implementation status](docs/IMPLEMENTATION-STATUS.md) with explicit
   partial and unimplemented areas.

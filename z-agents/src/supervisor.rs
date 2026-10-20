@@ -270,11 +270,20 @@ impl AgentHandle {
             }
         }
         self.alive.store(false, Ordering::SeqCst);
+        // PTY EOF can arrive a few scheduling ticks before the child is
+        // reapable. Waiting avoids falsely reporting a successful agent as
+        // failed (and losing its exit code) under load.
         let code = {
             let mut child = self.child.lock().expect("agent child lock");
-            match child.try_wait() {
-                Ok(Some(status)) => Some(status.exit_code() as i32),
-                _ => None,
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+            loop {
+                match child.try_wait() {
+                    Ok(Some(status)) => break Some(status.exit_code() as i32),
+                    Ok(None) if std::time::Instant::now() < deadline => {
+                        std::thread::sleep(std::time::Duration::from_millis(10));
+                    }
+                    _ => break None,
+                }
             }
         };
         {
@@ -286,6 +295,9 @@ impl AgentHandle {
             } else {
                 AgentState::Failed
             };
+            if code.is_none() {
+                info.last_error = Some("agent exited without a reportable status".into());
+            }
         }
         self.trace("exit", &format!("code={code:?}"));
         self.persist();

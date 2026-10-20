@@ -39,7 +39,7 @@ Legend: **implemented** · **partial** (working with a stated limit) ·
 | Web client / sharing | not started | — | No HTTP/WS listener. `remote.web_*` config is validated but unused. |
 | Team sync, SSO/SCIM/RBAC, fleet policy | not started | — | Existing enterprise stubs are unrelated to the blueprint control plane. |
 | wasm plugin host | not started | — | `plugin` only validates manifests; no runtime. |
-| Model router (cost/latency/fallback/budgets) | partial | `ai` | Provider registry and a simple router exist; per-day budgets, circuit breakers and fallback chains are not enforced. |
+| Model router (registry, cost/latency/quality/local-first, budgets, fallback, cache) | implemented | `z-models` | 23 unit tests plus an end-to-end mock-provider CLI test. Durable daily ledger with hard reservations, per-agent budgets, atomic reservations, retries/fallback, persisted circuit breakers and secret-safe response caching. No streaming/cancellation or embeddings yet; the cache is process-local. |
 | Landlock/seccomp/cgroup/network namespace | not started | — | Existing hardening is privilege/rlimit based. |
 | Audit ledger Ed25519 signing | partial | `z-audit` remains hash-chained | Checkpoints, evidence and reports are Ed25519-signed. The general audit log is still SHA-256 chained without a signature. |
 | Notifications, accessibility, i18n | not started | — | No screen-reader mode, translations or RTL handling. |
@@ -57,7 +57,8 @@ z context   index|search|pack|symbols|status|clear
 z checkpoint create|list|show|diff|restore|sign|verify|gc
 z workflow  validate|run|list|show
 z engagement create|list|show|scope-check|run|evidence|note|verify|finding|findings|report
-z agent     adapters|profiles|list|dashboard|run|resume|fork|approvals|approve|deny|trace
+z models    list|route|ask|usage|doctor
+z agent     adapters|profiles|list|dashboard|run|resume|fork|stop|approvals|approve|deny|trace
 z mcp       serve --agent <id> --profile <profile> --workspace <dir>
 z config    show|validate|paths|import|actions|keys|edit|init  (legacy get/set/secrets retained)
 z ui        terminal with shell-integration blocks and F11 block/search overlay
@@ -71,6 +72,8 @@ All destructive or agentic paths are deny-by-default and audited:
   HTTP requires `allow_http` plus a host allowlist.
 - MCP tools run under an agent profile; write/delete/exec can require an
   approval that a separate `z agent approve <id>` process grants.
+- Model calls reserve the maximum possible cost before contacting a provider;
+  a hard budget rejection happens before network I/O and is audited.
 - Checkpoint restore refuses a manifest whose Ed25519 signature is invalid.
 
 ---
@@ -93,19 +96,23 @@ All destructive or agentic paths are deny-by-default and audited:
 4. **Bash command capture is incomplete for compound commands** (pipelines,
    loops) because bash exposes only the currently executing simple command to
    its DEBUG trap. zsh/fish hooks are better but were not runnable here.
-5. **No scrollback persistence for raw session output.** Blocks are persisted
+5. **Model streaming is not implemented.** `z models ask` waits for the full
+   response; there is no token stream or cancellation. Response caching is
+   process-local, embeddings are not implemented, and the built-in price table
+   is static and should be verified against provider pricing.
+6. **No scrollback persistence for raw session output.** Blocks are persisted
    to SQLite; a daemon restart loses the live screen and raw ring buffer.
-6. **Checkpoint/hunk workflow is file-level.** Hunk diffs are displayed, but
+7. **Checkpoint/hunk workflow is file-level.** Hunk diffs are displayed, but
    there is no “accept only this hunk” operation yet.
-7. **Windows support is not complete.** The session daemon/client are Unix
+8. **Windows support is not complete.** The session daemon/client are Unix
    socket-only; the Windows named-pipe transport from the blueprint is absent.
-8. **Security convenience is deliberate, not a scanner.** Target extraction
+9. **Security convenience is deliberate, not a scanner.** Target extraction
    from commands only recognizes URLs and IP literals; pass `--target` for
    hostnames. Break-glass is local and audited, not multi-party.
-9. **Signing is local-key signing.** It detects tampering by someone without
+10. **Signing is local-key signing.** It detects tampering by someone without
    the key; a local attacker who can read `signing.key` can re-sign. The key is
    stored `0600`.
-10. **No claim of performance.** No benchmarks were run for this pass, so the
+11. **No claim of performance.** No benchmarks were run for this pass, so the
     blueprint's latency/FPS/RAM targets remain unverified.
 
 ---

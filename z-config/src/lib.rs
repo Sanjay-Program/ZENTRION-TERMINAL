@@ -179,6 +179,20 @@ impl Config {
         if self.models.default.trim().is_empty() {
             push("models.default", "must name a provider/model".into());
         }
+        if self.models.max_output_tokens == 0 || self.models.max_output_tokens > 1_000_000 {
+            push(
+                "models.max_output_tokens",
+                "must be between 1 and 1000000".into(),
+            );
+        }
+        for (agent, budget) in &self.models.agent_budgets {
+            if *budget < 0.0 || !budget.is_finite() {
+                push(
+                    &format!("models.agent_budgets.{agent}"),
+                    "must be a finite value >= 0".into(),
+                );
+            }
+        }
         if self.models.routing == ModelRouting::LocalOnly && self.models.allow_cloud {
             push(
                 "models.allow_cloud",
@@ -206,6 +220,34 @@ impl Config {
                     &format!("models.providers.{id}.context"),
                     "context window must be at least 1024".into(),
                 );
+            }
+            if provider.cost_per_mtok < 0.0 || !provider.cost_per_mtok.is_finite() {
+                push(
+                    &format!("models.providers.{id}.cost_per_mtok"),
+                    "must be a finite value >= 0".into(),
+                );
+            }
+            if let Some(output) = provider.output_cost_per_mtok {
+                if output < 0.0 || !output.is_finite() {
+                    push(
+                        &format!("models.providers.{id}.output_cost_per_mtok"),
+                        "must be a finite value >= 0".into(),
+                    );
+                }
+            }
+            if provider.latency_ms == Some(0) {
+                push(
+                    &format!("models.providers.{id}.latency_ms"),
+                    "must be greater than zero".into(),
+                );
+            }
+            if let Some(quality) = provider.quality {
+                if !(1..=100).contains(&quality) {
+                    push(
+                        &format!("models.providers.{id}.quality"),
+                        "must be between 1 and 100".into(),
+                    );
+                }
             }
             if let Some(env) = &provider.api_key_env {
                 let lower = env.to_ascii_lowercase();
