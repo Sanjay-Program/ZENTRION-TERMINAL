@@ -1,0 +1,19 @@
+[package]
+name = "z-notebook"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+thiserror.workspace = true
+z-core = { path = "../core" }
+z-workflow = { path = "../z-workflow" }
+z-blocks = { path = "../z-blocks" }
+z-identity = { path = "../identity" }
+libc = "0.2"

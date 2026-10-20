@@ -158,7 +158,13 @@ pub fn models(args: &[String], json_out: bool) -> ZenResult<()> {
                         "\n[{} via {}{} · {} in / {} out · ${:.4}]",
                         outcome.route.reference,
                         outcome.route.provider,
-                        if outcome.cached { " (cached)" } else { "" },
+                        if outcome.cached {
+                            " (cached)"
+                        } else if outcome.redacted {
+                            " (prompt redacted)"
+                        } else {
+                            ""
+                        },
                         outcome.tokens_in,
                         outcome.tokens_out,
                         micros_to_usd(outcome.cost_micros)

@@ -36,6 +36,16 @@
   redacted markdown/HTML reports.
 - Added Ed25519 signing to `z-identity` for checkpoint/evidence/report exports.
 
+### Notebooks
+- Added `z-notebook`: shell/markdown/AI cells with parameters, previous-output
+  interpolation, per-cell timeouts, output caps, secret redaction, audit
+  records and JSON run history.
+- Added `z notebook create|list|show|validate|run|runs|export`; AI cells run
+  through the model router and honour budgets, while `--no-ai` fails them
+  explicitly. Markdown/HTML exports include executed outputs.
+- Added unit tests and a CLI integration test (parameterized shell + markdown,
+  export, audit verification).
+
 ### Web observer
 - Added `z-web` and `z web serve`: loopback-only HTTP observer with separate
   read and write tokens, session list, plain-text screen snapshots, optional
@@ -92,7 +102,7 @@
 - Fixed z-blocks compile errors and two recorder/store test failures.
 - Fixed bash integration to pass `--rcfile` as a separate argument.
 - Restored SIGPIPE defaults so piping into `head` does not panic.
-- Added 50 end-to-end CLI tests including sessions, context, checkpoints,
+- Added 51 end-to-end CLI tests including sessions, context, checkpoints,
   workflows and security scope blocking.
 - Added [Implementation status](docs/IMPLEMENTATION-STATUS.md) with explicit
   partial and unimplemented areas.

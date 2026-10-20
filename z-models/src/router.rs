@@ -77,6 +77,7 @@ pub struct ChatOutcome {
     pub tokens_in: u64,
     pub tokens_out: u64,
     pub cost_micros: u64,
+    pub redacted: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -309,6 +310,17 @@ impl Router {
 
     /// Execute a request with fallback, retries, budget reservations and cache.
     pub fn chat(&self, request: RouteRequest) -> Result<ChatOutcome, RouterError> {
+        // Credential-shaped strings never leave the machine. Redaction can
+        // change the prompt, so such prompts are not cached.
+        let mut messages = request.messages.clone();
+        let mut prompt_redacted = false;
+        for message in &mut messages {
+            let (redacted, found) = z_blocks::redact(&message.content);
+            if !found.is_empty() {
+                prompt_redacted = true;
+            }
+            message.content = redacted;
+        }
         let routes = self.plan(&request)?;
         let max_output = request
             .max_output_tokens
@@ -330,6 +342,7 @@ impl Router {
                     tokens_in: cached.tokens_in,
                     tokens_out: cached.tokens_out,
                     cost_micros: 0,
+                    redacted: false,
                 });
             }
         }
@@ -360,9 +373,9 @@ impl Router {
                     }
                 };
                 let started = Instant::now();
-                let result =
-                    self.transport
-                        .chat(&route, &request.messages, max_output, request.timeout);
+                let result = self
+                    .transport
+                    .chat(&route, &messages, max_output, request.timeout);
                 let duration_ms = started.elapsed().as_millis() as u64;
                 match result {
                     Ok(mut output) => {
@@ -400,6 +413,7 @@ impl Router {
                             tokens_in: output.tokens_in,
                             tokens_out: output.tokens_out,
                             cost_micros: cost,
+                            redacted: prompt_redacted,
                         });
                     }
                     Err(error) => {
@@ -606,6 +620,7 @@ mod tests {
 
     struct MockTransport {
         calls: Mutex<Vec<String>>,
+        prompts: Mutex<Vec<String>>,
         failures: Mutex<HashMap<String, u32>>,
         delay: Duration,
     }
@@ -614,6 +629,7 @@ mod tests {
         fn new(failures: &[(&str, u32)]) -> std::sync::Arc<Self> {
             std::sync::Arc::new(Self {
                 calls: Mutex::new(Vec::new()),
+                prompts: Mutex::new(Vec::new()),
                 failures: Mutex::new(
                     failures
                         .iter()
@@ -633,11 +649,15 @@ mod tests {
         fn chat(
             &self,
             route: &Route,
-            _messages: &[ChatMessage],
+            messages: &[ChatMessage],
             _max_tokens: u32,
             _timeout: Duration,
         ) -> Result<ChatOutput, TransportError> {
             self.calls.lock().unwrap().push(route.provider.clone());
+            self.prompts
+                .lock()
+                .unwrap()
+                .extend(messages.iter().map(|message| message.content.clone()));
             if self.delay > Duration::from_millis(0) {
                 std::thread::sleep(self.delay);
             }
@@ -933,6 +953,24 @@ mod tests {
             .count();
         assert_eq!(before, after);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn prompts_are_redacted_before_the_provider() {
+        let transport = MockTransport::new(&[]);
+        let mut config = test_config();
+        config.cache = false;
+        let router = test_router(&config, transport.clone(), 10.0);
+        let outcome = router
+            .chat(RouteRequest::new(
+                "chat",
+                vec![ChatMessage::user("use key AKIAABCDEFGHIJKLMNOP for this")],
+            ))
+            .unwrap();
+        assert!(outcome.redacted);
+        let prompts = transport.prompts.lock().unwrap().join("\n");
+        assert!(!prompts.contains("AKIAABCDEFGHIJKLMNOP"), "{prompts}");
+        assert!(prompts.contains("[REDACTED"), "{prompts}");
     }
 
     #[test]

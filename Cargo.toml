@@ -15,7 +15,7 @@ members = [
     "registry",
     "nativetool",
     "tests", "sandbox", "tools", "ai", "agents", "mcp", "sdk", "plugin", "tui", "devsec", "enterprise", "bundled", "update", "daemon", "p2p",
-    "z-vt", "z-blocks", "z-session", "z-config", "z-context", "z-checkpoint", "z-workflow", "z-security", "z-agents", "z-models", "z-remote", "z-web",
+    "z-vt", "z-blocks", "z-session", "z-config", "z-context", "z-checkpoint", "z-workflow", "z-security", "z-agents", "z-models", "z-remote", "z-web", "z-notebook",
 ]
 resolver = "2"
 

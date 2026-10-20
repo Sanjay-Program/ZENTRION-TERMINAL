@@ -411,6 +411,12 @@ enum Commands {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
+
+    /// Executable shell/markdown/AI notebooks
+    Notebook {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
 }
 
 fn main() {
@@ -582,6 +588,7 @@ fn main() {
         Some(Commands::Models { args }) => terminal_cmd::models(&args, cli.json),
         Some(Commands::Remote { args }) => terminal_cmd::remote(&args, cli.json),
         Some(Commands::Web { args }) => terminal_cmd::web(&args, cli.json),
+        Some(Commands::Notebook { args }) => terminal_cmd::notebook(&args, cli.json),
         Some(Commands::Do { intent }) => {
             subsystems_cmd::do_intent(&intent, cli.project.clone(), cli.json)
         }

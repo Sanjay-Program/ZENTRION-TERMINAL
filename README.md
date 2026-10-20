@@ -70,6 +70,10 @@ PTY, tabs, splits, and a local control plane.
   content-addressed (optionally Ed25519-signed); `z checkpoint diff` shows
   hunks; `z checkpoint restore` returns files byte-for-byte and removes files
   added since the snapshot.
+- **Executable notebooks.** `z notebook run` executes shell, markdown and AI
+  cells in order with parameters, previous-output interpolation, timeouts,
+  secret redaction, audit records and markdown/HTML export. AI cells go through
+  the model router and respect its budgets.
 - **Workflows with approvals.** `z workflow run wf.yaml` executes
   run/approve/parallel/conditional/HTTP/artifact steps with timeouts, secret
   handles and audit records. HTTP is off unless allowlisted.

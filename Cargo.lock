@@ -4539,6 +4539,7 @@ dependencies = [
  "z-identity",
  "z-models",
  "z-native",
+ "z-notebook",
  "z-package",
  "z-policy",
  "z-projects",
@@ -4668,6 +4669,23 @@ dependencies = [
  "serde",
  "serde_json",
  "z-core",
+]
+
+[[package]]
+name = "z-notebook"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "libc",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "thiserror 1.0.69",
+ "uuid",
+ "z-blocks",
+ "z-core",
+ "z-identity",
+ "z-workflow",
 ]
 
 [[package]]

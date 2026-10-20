@@ -1164,3 +1164,69 @@ print('ok')
     );
     assert!(String::from_utf8_lossy(&output.stdout).contains("ok"));
 }
+
+#[test]
+fn notebook_runs_parameterized_shell_and_markdown_cells_and_exports() {
+    let env = Env::new("notebook");
+    let root = env.project();
+    let file = root.join("demo.notebook.yaml");
+    std::fs::write(
+        &file,
+        r##"
+version: 1
+name: demo
+description: Integration notebook
+params:
+  who:
+    type: string
+    default: world
+cells:
+  - id: intro
+    kind: markdown
+    source: "# Hello ${who}"
+  - id: check
+    kind: shell
+    source: "echo notebook-${who}"
+    timeout: 10s
+"##,
+    )
+    .unwrap();
+    let (out, err, code) = run(
+        &env,
+        &root,
+        &[
+            "notebook",
+            "run",
+            file.to_str().unwrap(),
+            "--param",
+            "who=team",
+            "--no-ai",
+            "--verbose",
+        ],
+    );
+    assert_eq!(code, 0, "{err}");
+    assert!(out.contains("Succeeded"), "{out}");
+    assert!(out.contains("notebook-team"), "{out}");
+    let run_id = out
+        .lines()
+        .find_map(|line| line.strip_prefix("Run:      "))
+        .unwrap()
+        .trim();
+    let (export, err, code) = run(
+        &env,
+        &root,
+        &[
+            "notebook",
+            "export",
+            file.to_str().unwrap(),
+            "--run",
+            run_id,
+        ],
+    );
+    assert_eq!(code, 0, "{err}");
+    assert!(export.contains("# Hello team"), "{export}");
+    assert!(export.contains("notebook-team"), "{export}");
+    let (out, _, code) = run(&env, &root, &["audit", "verify"]);
+    assert_eq!(code, 0);
+    assert!(out.contains("verified"), "{out}");
+}
