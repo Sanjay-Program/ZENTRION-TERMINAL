@@ -1,6 +1,59 @@
 # Changelog
 
-## Unreleased — terminal and security overhaul
+## Unreleased — blueprint implementation
+
+### Terminal workspace, blocks and sessions
+- Added `z-session`: a per-user Unix-socket daemon that owns PTYs, records
+  command blocks, replays output by sequence number and survives UI detach.
+- Added JSON-RPC + binary output framing, attach/detach, resize/signal/close,
+  daemon status/shutdown and a blocking client that auto-spawns the daemon.
+- Added generated shell integration for bash/zsh/fish/pwsh/nushell (bash
+  exercised end-to-end) and block capture from OSC 133 marks; internal shell
+  setup commands are filtered out.
+- Added `z block`/`z session`/`z workspace` commands, YAML layouts and restore
+  policies. Risky commands require `auto_run` or `--approve`.
+- TUI sessions now install shell integration; `F11` opens a block/search
+  overlay with rerun, and OSC 9;4 progress appears in the pane title.
+
+### Configuration and context
+- Added `z-config`: layered TOML, strict validation with file:line errors,
+  profiles, named actions/keybinding validation, atomic writes with backup and
+  importers for Windows Terminal, Ghostty, iTerm2 and Zentrion TOML.
+- Added `z-context`: incremental SQLite FTS5 repository index (git-aware and
+  secret-excluding), lexer-level symbols, search and deterministic,
+  token-budgeted, redacted context packs with citations.
+
+### Checkpoints, workflows and security
+- Added `z-checkpoint`: content-addressed snapshots, blob dedupe, diff hunks,
+  byte-verified full/file rollback, workspace locking, GC and Ed25519-signed
+  manifests.
+- Added `z-workflow`: validated YAML, params/secrets, conditions, approvals,
+  parallel steps, policy-gated HTTP, artifacts, timeouts, retries, audit
+  records and saved run history.
+- Added `z-security`/`z engagement`: authorization and scope records, wildcard/
+  CIDR/port scope checks, pre-execution scope blocking, break-glass, signed
+  append-only evidence chain with hashed output, findings and signed
+  redacted markdown/HTML reports.
+- Added Ed25519 signing to `z-identity` for checkpoint/evidence/report exports.
+
+### Agents and MCP
+- Added `z-agents`: adapter manifests for Claude Code, Codex, Gemini CLI,
+  OpenCode, Aider and custom agents, built-in profiles, PTY supervisor with
+  status/queue/trace/resume, approval broker with single-use tokens and audit,
+  and a local MCP server exposing policy-gated filesystem/process tools.
+- Added agent policy actions to `z-policy` (tool call, fs read/write/delete,
+  exec, shell, network, secret read); deny by default.
+- `z agent` now provides adapters/profiles/list/dashboard/run/resume/fork/
+  approvals/approve/deny/trace; `z mcp serve` is the brokered MCP proxy.
+
+### Fixes
+- Fixed z-blocks compile errors and two recorder/store test failures.
+- Fixed bash integration to pass `--rcfile` as a separate argument.
+- Restored SIGPIPE defaults so piping into `head` does not panic.
+- Added 46 end-to-end CLI tests including sessions, context, checkpoints,
+  workflows and security scope blocking.
+- Added [Implementation status](docs/IMPLEMENTATION-STATUS.md) with explicit
+  partial and unimplemented areas.
 
 ### Terminal
 - Added a real PTY-backed terminal engine (`portable-pty` + `vt100`) with

@@ -5,6 +5,7 @@
 //! terminal content: everything rendered in a pane comes from the child process.
 
 use anyhow::{Context, Result};
+use chrono::Utc;
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use std::io::{Read, Write};
 use std::path::PathBuf;
@@ -12,6 +13,8 @@ use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::thread;
 use std::time::{Duration, Instant};
 use vt100::Parser;
+use z_blocks::{Block, BlockRecorder, BlockStatus, RecorderUpdate};
+use z_vt::{OscEvent, ShellIntegrationMeta, ShellMark, VtScanner};
 
 /// Maximum number of scrollback lines retained per session.
 pub const SCROLLBACK_LINES: usize = 10_000;
@@ -29,12 +32,26 @@ pub struct Session {
     pub scroll_offset: usize,
     pub exit_status: Option<String>,
     pub last_activity: Instant,
+    /// True when OSC 133 shell hooks are active for this session.
+    pub integration: bool,
+    /// Progress reported by OSC 9;4 (state label, percent).
+    pub progress: Option<(String, Option<u8>)>,
+    /// Last OSC 9 notification (title, body).
+    pub notification: Option<(String, String)>,
 
     master: Box<dyn MasterPty + Send>,
     writer: Box<dyn Write + Send>,
     child: Box<dyn Child + Send + Sync>,
     output: Receiver<Vec<u8>>,
     size: (u16, u16),
+    scanner: VtScanner,
+    splitter: z_session::MarkerSplitter,
+    recorder: BlockRecorder,
+    collecting: bool,
+    blocks: Vec<Block>,
+    block_outputs: Vec<String>,
+    finished_on_exit: bool,
+    command_file: Option<PathBuf>,
 }
 
 impl Session {
@@ -63,13 +80,52 @@ impl Session {
             })
             .context("could not allocate a pseudo-terminal")?;
 
+        let cwd = cwd
+            .or_else(|| std::env::current_dir().ok())
+            .unwrap_or_else(|| PathBuf::from("."));
+        // Install shell integration when the program is a supported shell. This
+        // is what turns output into authoritative command blocks.
+        let session_id = format!(
+            "ui_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        );
+        let command_file = z_core::config::user_data_dir().map(|data| {
+            let path = data
+                .join("sessions")
+                .join("cmd")
+                .join(format!("{session_id}.cmd"));
+            if let Some(parent) = path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            path
+        });
+        let command_path = command_file
+            .clone()
+            .unwrap_or_else(|| std::env::temp_dir().join(format!("{session_id}.cmd")));
+        let integration_dir = z_session::integration::default_integration_dir();
+        let launch = z_session::integration::plan_launch(
+            program,
+            z_config::ShellIntegration::Auto,
+            integration_dir.as_deref(),
+            &session_id,
+            &command_path,
+            &[],
+            false,
+        );
         let mut cmd = CommandBuilder::new(program);
         for arg in args {
             cmd.arg(arg);
         }
-        let cwd = cwd
-            .or_else(|| std::env::current_dir().ok())
-            .unwrap_or_else(|| PathBuf::from("."));
+        for arg in &launch.args {
+            cmd.arg(arg);
+        }
+        for (key, value) in &launch.env {
+            cmd.env(key, value);
+        }
         cmd.cwd(&cwd);
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
@@ -122,7 +178,7 @@ impl Session {
 
         Ok(Self {
             title,
-            cwd,
+            cwd: cwd.clone(),
             parser: Parser::new(nonzero(rows), nonzero(cols), SCROLLBACK_LINES),
             scroll_offset: 0,
             exit_status: None,
@@ -132,6 +188,17 @@ impl Session {
             child,
             output: rx,
             size: (rows, cols),
+            integration: launch.integration,
+            progress: None,
+            notification: None,
+            scanner: VtScanner::new(z_vt::VtPolicy::default()),
+            splitter: z_session::MarkerSplitter::new(),
+            recorder: BlockRecorder::new(&session_id, program, cwd.display().to_string()),
+            collecting: false,
+            blocks: Vec::new(),
+            block_outputs: Vec::new(),
+            finished_on_exit: false,
+            command_file: command_file.clone(),
         })
     }
 
@@ -141,6 +208,7 @@ impl Session {
             match self.output.try_recv() {
                 Ok(bytes) => {
                     self.parser.process(&bytes);
+                    self.track_blocks(&bytes);
                     self.last_activity = Instant::now();
                 }
                 Err(TryRecvError::Empty) => break,
@@ -156,6 +224,15 @@ impl Session {
                 } else {
                     text
                 });
+                if !self.finished_on_exit {
+                    self.finished_on_exit = true;
+                    if let Some((block, output)) =
+                        self.recorder
+                            .finish_capture(None, BlockStatus::Cancelled, Utc::now())
+                    {
+                        self.push_block(block, output);
+                    }
+                }
             }
         }
 
@@ -217,6 +294,138 @@ impl Session {
     }
 
     /// Scroll back by `rows`; 0 means the live screen.
+    /// Command blocks derived from shell-integration marks.
+    pub fn blocks(&self) -> &[Block] {
+        &self.blocks
+    }
+
+    pub fn block_outputs(&self) -> &[String] {
+        &self.block_outputs
+    }
+
+    fn push_block(&mut self, block: Block, output: Vec<u8>) {
+        if block.command.trim().is_empty() {
+            return;
+        }
+        let plain = z_blocks::strip_ansi(&String::from_utf8_lossy(&output));
+        self.blocks.push(block);
+        self.block_outputs.push(plain);
+        if self.blocks.len() > 500 {
+            self.blocks.remove(0);
+            self.block_outputs.remove(0);
+        }
+    }
+
+    fn track_blocks(&mut self, bytes: &[u8]) {
+        let segments = self.splitter.push(bytes);
+        for segment in segments {
+            let events = self.scanner.advance(&segment.bytes);
+            if let Some(mark) = segment.mark {
+                self.apply_mark(mark);
+            } else if self.collecting {
+                self.recorder.append_output(&segment.bytes);
+            }
+            for event in events {
+                match event {
+                    OscEvent::ShellMark(ShellMark::Cwd(path)) => {
+                        let _ = self
+                            .recorder
+                            .on_event(&OscEvent::ShellMark(ShellMark::Cwd(path)), Utc::now());
+                    }
+                    OscEvent::ShellMark(ShellMark::Metadata(meta)) if meta.command.is_some() => {
+                        let _ = self
+                            .recorder
+                            .on_event(&OscEvent::ShellMark(ShellMark::Metadata(meta)), Utc::now());
+                    }
+                    OscEvent::Progress { state, pct } => {
+                        self.progress = Some((format!("{state:?}").to_lowercase(), pct));
+                    }
+                    OscEvent::Notification { title, body } => {
+                        self.notification = Some((title, body));
+                    }
+                    OscEvent::Title(title) => {
+                        if !title.is_empty() {
+                            self.title = title.chars().take(80).collect();
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    fn apply_mark(&mut self, mark: z_session::Mark) {
+        let now = Utc::now();
+        match mark {
+            z_session::Mark::Prompt => {
+                self.collecting = false;
+                let updates = self
+                    .recorder
+                    .on_event(&OscEvent::ShellMark(ShellMark::PromptStart), now);
+                self.collect_updates(updates);
+            }
+            z_session::Mark::Command => {
+                self.collecting = false;
+                if self
+                    .recorder
+                    .current()
+                    .map(|block| !block.status.is_finished())
+                    .unwrap_or(false)
+                {
+                    if let Some((block, output)) =
+                        self.recorder
+                            .finish_capture(None, BlockStatus::Cancelled, now)
+                    {
+                        self.push_block(block, output);
+                    }
+                }
+                if let Some(command) = self
+                    .command_file
+                    .as_deref()
+                    .and_then(z_session::read_captured_command)
+                {
+                    let _ = self.recorder.on_event(
+                        &OscEvent::ShellMark(ShellMark::Metadata(ShellIntegrationMeta {
+                            command: Some(command),
+                            ..Default::default()
+                        })),
+                        now,
+                    );
+                }
+                let updates = self
+                    .recorder
+                    .on_event(&OscEvent::ShellMark(ShellMark::CommandStart), now);
+                self.collect_updates(updates);
+            }
+            z_session::Mark::Output => {
+                self.collecting = true;
+                let updates = self
+                    .recorder
+                    .on_event(&OscEvent::ShellMark(ShellMark::OutputStart), now);
+                self.collect_updates(updates);
+            }
+            z_session::Mark::Finished(code) => {
+                self.collecting = false;
+                let status = match code {
+                    Some(0) => BlockStatus::Ok,
+                    Some(_) => BlockStatus::Failed,
+                    None => BlockStatus::Cancelled,
+                };
+                if let Some((block, output)) = self.recorder.finish_capture(code, status, now) {
+                    self.push_block(block, output);
+                }
+            }
+        }
+    }
+
+    fn collect_updates(&mut self, updates: Vec<RecorderUpdate>) {
+        for update in updates {
+            if let RecorderUpdate::Finished(block) = update {
+                self.push_block(block, Vec::new());
+            }
+        }
+    }
+
     pub fn scroll_up(&mut self, rows: usize) {
         let max = self.parser.screen().scrollback_len();
         self.scroll_offset = (self.scroll_offset + rows).min(max);

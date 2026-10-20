@@ -10,6 +10,7 @@ mod docs_cmd;
 mod native_engines;
 mod phase3_cmd;
 mod subsystems_cmd;
+mod terminal_cmd;
 mod tools_cmd;
 
 use clap::{Parser, Subcommand};
@@ -64,7 +65,7 @@ enum Commands {
         args: Vec<String>,
     },
 
-    /// Inspect or modify configuration (never secrets)
+    /// Layered configuration, keybindings, profiles and importers
     Config {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
@@ -275,7 +276,7 @@ enum Commands {
         args: Vec<String>,
     },
 
-    /// Connect to a Model Context Protocol server and list its tools
+    /// Serve brokered MCP tools or connect to an MCP server
     Mcp {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
@@ -320,7 +321,7 @@ enum Commands {
         args: Vec<String>,
     },
 
-    /// Scans, findings, reports and security posture
+    /// Scans, findings, engagements, evidence and signed reports
     Security {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
@@ -338,7 +339,7 @@ enum Commands {
         args: Vec<String>,
     },
 
-    /// Agent profiles, guardrails and model-backed runs
+    /// Host and supervise CLI agents; approvals, traces and profiles
     Agent {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
@@ -349,9 +350,56 @@ enum Commands {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         intent: Vec<String>,
     },
+
+    /// Durable PTY sessions: list, create, attach, replay, close
+    Session {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+
+    /// Saved command blocks: list, search, show, export, verify
+    Blocks {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+
+    /// Named workspaces, layouts and restore plans
+    Workspace {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+
+    /// Local repository index, symbols and agent context packs
+    Context {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+
+    /// Content-addressed workspace snapshots, diff and rollback
+    Checkpoint {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+
+    /// Parameterized workflows with approvals and conditions
+    Workflow {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+
+    /// Authorized security engagements, evidence and signed reports
+    Engagement {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
 }
 
 fn main() {
+    // Behave like a Unix tool when piped into `head`: do not panic on EPIPE.
+    #[cfg(unix)]
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
     let cli = Cli::parse();
 
     let result = match cli.command {
@@ -365,7 +413,7 @@ fn main() {
         Some(Commands::Setup) => commands::setup(cli.json),
         Some(Commands::Storage { args }) => commands::storage(&args, cli.json),
         Some(Commands::Profile { args }) => commands::profile(&args, cli.json),
-        Some(Commands::Config { args }) => commands::config(&args, cli.json),
+        Some(Commands::Config { args }) => terminal_cmd::config(&args, cli.json),
         Some(Commands::Init { path, name }) => commands::init(path, name, cli.json),
         Some(Commands::Project { check, args }) => {
             commands::project(check, &args, cli.project.clone(), cli.json)
@@ -489,7 +537,14 @@ fn main() {
         }),
         Some(Commands::Code { args }) => subsystems_cmd::code(&args, cli.project.clone(), cli.json),
         Some(Commands::Security { args }) => {
-            subsystems_cmd::security(&args, cli.project.clone(), cli.json)
+            if matches!(
+                args.first().map(|s| s.as_str()),
+                Some("engagement") | Some("engagements")
+            ) {
+                terminal_cmd::engagement(&args[1..], cli.json)
+            } else {
+                subsystems_cmd::security(&args, cli.project.clone(), cli.json)
+            }
         }
         Some(Commands::Network { args }) => {
             subsystems_cmd::network(&args, cli.project.clone(), cli.json)
@@ -497,7 +552,14 @@ fn main() {
         Some(Commands::Cloud { args }) => {
             subsystems_cmd::cloud(&args, cli.project.clone(), cli.json)
         }
-        Some(Commands::Agent { args }) => subsystems_cmd::agent(&args, cli.json),
+        Some(Commands::Agent { args }) => terminal_cmd::agent(&args, cli.json),
+        Some(Commands::Session { args }) => terminal_cmd::session(&args, cli.json),
+        Some(Commands::Blocks { args }) => terminal_cmd::blocks(&args, cli.json),
+        Some(Commands::Workspace { args }) => terminal_cmd::workspace(&args, cli.json),
+        Some(Commands::Context { args }) => terminal_cmd::context(&args, cli.json),
+        Some(Commands::Checkpoint { args }) => terminal_cmd::checkpoint(&args, cli.json),
+        Some(Commands::Workflow { args }) => terminal_cmd::workflow(&args, cli.json),
+        Some(Commands::Engagement { args }) => terminal_cmd::engagement(&args, cli.json),
         Some(Commands::Do { intent }) => {
             subsystems_cmd::do_intent(&intent, cli.project.clone(), cli.json)
         }
@@ -853,6 +915,9 @@ fn handle_mcp(
     json_out: bool,
     project: Option<std::path::PathBuf>,
 ) -> z_core::error::ZenResult<()> {
+    if matches!(args.first().map(|s| s.as_str()), Some("serve")) {
+        return terminal_cmd::mcp_serve(&args[1..], json_out);
+    }
     match args.first().map(|s| s.as_str()) {
         Some("connect") => {
             let allow = args.iter().any(|arg| arg == "--allow");

@@ -1,0 +1,21 @@
+[package]
+name = "z-workflow"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+chrono.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+sha2.workspace = true
+uuid.workspace = true
+libc = "0.2"
+ureq = "2.12"
+z-core = { path = "../core" }
+z-blocks = { path = "../z-blocks" }
+z-identity = { path = "../identity" }

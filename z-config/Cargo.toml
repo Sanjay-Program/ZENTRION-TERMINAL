@@ -1,0 +1,16 @@
+[package]
+name = "z-config"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+toml.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+regex.workspace = true
+z-core = { path = "../core" }

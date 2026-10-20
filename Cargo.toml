@@ -15,6 +15,7 @@ members = [
     "registry",
     "nativetool",
     "tests", "sandbox", "tools", "ai", "agents", "mcp", "sdk", "plugin", "tui", "devsec", "enterprise", "bundled", "update", "daemon", "p2p",
+    "z-vt", "z-blocks", "z-session", "z-config", "z-context", "z-checkpoint", "z-workflow", "z-security", "z-agents",
 ]
 resolver = "2"
 
@@ -37,3 +38,13 @@ chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.6", features = ["v4", "serde"] }
 log = "0.4"
 env_logger = "0.10"
+toml = "0.8"
+regex = "1"
+sha2 = "0.10"
+base64 = "0.21"
+flate2 = "1"
+similar = "2"
+rusqlite = { version = "0.32", features = ["bundled"] }
+portable-pty = "0.9"
+vt100 = "0.18"
+vte = "0.15"

@@ -1,0 +1,21 @@
+[package]
+name = "z-security"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+sha2.workspace = true
+anyhow.workspace = true
+regex.workspace = true
+flate2.workspace = true
+uuid.workspace = true
+ipnet = "2"
+libc = "0.2"
+z-core = { path = "../core" }
+z-identity = { path = "../identity" }
+z-blocks = { path = "../z-blocks" }

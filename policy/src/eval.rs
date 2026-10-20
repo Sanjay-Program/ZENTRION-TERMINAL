@@ -149,6 +149,78 @@ pub fn evaluate(policy: &Policy, req: &PolicyRequest) -> PolicyDecision {
             });
             (hit, format!("process.spawn {:?}", policy.process.spawn))
         }
+        // Agent tool governance. Every action is deny-by-default and scoped.
+        "agent.fs.read" => {
+            let hit = policy
+                .agent
+                .read
+                .iter()
+                .any(|g| glob_match(g, req.resource.trim_start_matches("./")));
+            (hit, format!("agent.read {:?}", policy.agent.read))
+        }
+        "agent.fs.write" => {
+            let hit = policy
+                .agent
+                .write
+                .iter()
+                .any(|g| glob_match(g, req.resource.trim_start_matches("./")));
+            (hit, format!("agent.write {:?}", policy.agent.write))
+        }
+        "agent.fs.delete" => {
+            let hit = policy
+                .agent
+                .delete
+                .iter()
+                .any(|g| glob_match(g, req.resource.trim_start_matches("./")));
+            (hit, format!("agent.delete {:?}", policy.agent.delete))
+        }
+        "agent.exec" => {
+            let hit = policy.agent.exec.iter().any(|allowed| {
+                req.resource == *allowed
+                    || req
+                        .resource
+                        .rsplit_once('/')
+                        .map(|(_, name)| name == allowed)
+                        .unwrap_or(false)
+            });
+            (hit, format!("agent.exec {:?}", policy.agent.exec))
+        }
+        "agent.shell" => {
+            let hit = policy
+                .agent
+                .shell
+                .iter()
+                .any(|prefix| req.resource.starts_with(prefix));
+            (hit, format!("agent.shell {:?}", policy.agent.shell))
+        }
+        "agent.net" => {
+            let hit = policy
+                .agent
+                .net
+                .iter()
+                .any(|host| host == "*" || host.eq_ignore_ascii_case(&req.resource));
+            (hit, format!("agent.net {:?}", policy.agent.net))
+        }
+        "agent.secret.read" => {
+            let hit = policy
+                .agent
+                .secrets
+                .iter()
+                .any(|secret| secret == &req.resource);
+            (hit, format!("agent.secrets {:?}", policy.agent.secrets))
+        }
+        "agent.tool.call" => {
+            let resource = req.resource.strip_prefix("mcp:").unwrap_or(&req.resource);
+            let hit = policy.agent.tools.iter().any(|tool| {
+                tool == "*"
+                    || tool == resource
+                    || tool
+                        .strip_suffix("/*")
+                        .map(|server| resource.starts_with(&format!("{server}/")))
+                        .unwrap_or(false)
+            });
+            (hit, format!("agent.tools {:?}", policy.agent.tools))
+        }
         // Tool execution is gated on the *tool allowlist*, not the raw binary
         // list, so a permitted tool cannot be swapped for another binary.
         "tool.execute" => {
@@ -195,6 +267,11 @@ pub fn classify_risk(req: &PolicyRequest) -> Risk {
         "secret.write" => Risk::High,
         "system.admin" => Risk::Critical,
         "process.spawn" => Risk::Medium,
+        "agent.fs.read" => Risk::Low,
+        "agent.fs.write" | "agent.tool.call" => Risk::Medium,
+        "agent.fs.delete" | "agent.shell" => Risk::High,
+        "agent.exec" | "agent.net" => Risk::Medium,
+        "agent.secret.read" => Risk::Critical,
         "tool.execute" | "tool.install" => Risk::Medium,
         _ => Risk::High, // unknown actions treated conservatively
     }

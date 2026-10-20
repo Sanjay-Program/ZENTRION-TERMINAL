@@ -1326,6 +1326,7 @@ fn cloud_scan(root: &Path) -> ZenResult<Vec<CloudFinding>> {
 // agents
 // ---------------------------------------------------------------------------
 
+#[allow(dead_code)]
 pub fn agent(args: &[String], json_out: bool) -> ZenResult<()> {
     match args.first().map(|s| s.as_str()).unwrap_or("status") {
         "profiles" | "list" => {

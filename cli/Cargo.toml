@@ -41,3 +41,15 @@ daemon = { version = "0.1.0", path = "../daemon" }
 tools = { path = "../tools" }
 sdk = { version = "0.1.0", path = "../sdk" }
 ai = { version = "0.1.0", path = "../ai" }
+z-session = { path = "../z-session" }
+z-blocks = { path = "../z-blocks" }
+z-config = { path = "../z-config" }
+z-context = { path = "../z-context" }
+z-checkpoint = { path = "../z-checkpoint" }
+z-workflow = { path = "../z-workflow" }
+z-security = { path = "../z-security" }
+z-agents = { path = "../z-agents" }
+crossterm = "0.29.0"
+base64.workspace = true
+chrono.workspace = true
+libc = "0.2"

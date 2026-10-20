@@ -1,0 +1,137 @@
+# Implementation status
+
+**Updated:** 2026-10-20  
+**Companion to:** [Implementation Blueprint](IMPLEMENTATION-BLUEPRINT.md) and
+[Competitive Roadmap](COMPETITIVE-ROADMAP.md)
+
+This page reports what the current tree actually does. It is deliberately
+conservative: a feature is **implemented** only when code is wired into `z` and
+covered by tests; design text is never treated as shipped.
+
+Legend: **implemented** · **partial** (working with a stated limit) ·
+**not started**.
+
+---
+
+## 1. Subsystems
+
+| Area | Status | Where | Evidence / limits |
+|---|---|---|---|
+| VT parsing, OSC policy, screen, search, selections, link detection | implemented | `z-vt` | Golden unit tests for OSC 133/7/9/9;4/52/1337, search, selections, link schemes. No execution from output. |
+| Command blocks, SQLite/WAL store, FTS5, gzip output, redaction, sharing | implemented | `z-blocks` | Recorder state-machine tests, store round-trip, tamper detection, secret redaction tests. |
+| PTY sessions, Unix socket daemon, JSON-RPC + binary frames, attach/detach, replay, block sink | implemented (Unix) | `z-session` | End-to-end daemon test; CLI integration test creates a bash session and asserts blocks/replay. Windows named pipe is not implemented. |
+| Shell integration scripts (bash, zsh, fish, pwsh, nushell) | partial | `z-session/src/integration.rs` | Bash is exercised end-to-end. The other four scripts are generated and validated by manifest tests but the shells were unavailable in this environment. Bash compound/pipeline command text is best-effort because bash's DEBUG trap reports simple commands. |
+| Workspaces, YAML layouts, restore policies | implemented | `z-session/src/workspace.rs` | Blueprint example parses; unit tests for validation and restore plans; `z workspace restore` spawns shells and only auto-runs commands with `auto_run`/`--approve`. Agent panes are reported, not auto-started. |
+| Layered config, keybindings, profiles, importers | implemented | `z-config` | 21 unit tests: precedence, strict unknown-key errors with line numbers, atomic writes, backup, Windows Terminal/Ghostty/iTerm2 import. The TUI now dispatches bound F-key/Alt actions through this keymap; actions without a TUI implementation (copy mode, agent dashboard, workspace actions) still fall through. |
+| Repository index, symbols, deterministic context packs | implemented | `z-context` | SQLite FTS5, git-aware walking, secret/binary exclusions, incremental reindex, budgeted packs, redaction. Symbols are lexer-level, not tree-sitter; embeddings are not implemented. |
+| Content-addressed checkpoints, diff, rollback, GC | implemented | `z-checkpoint` | Blob dedupe, signed manifests (Ed25519), diff hunks, byte-verified full/file restore, deletion of added files, workspace lock, GC. Hunk-level *accept* is not implemented (view hunks, accept/restore per file). |
+| Workflows (run/approve/parallel/if/http/artifact), vars, secrets, audit | implemented | `z-workflow` | 20 tests including timeout kill, denied approval, parallel, artifact traversal, audit records. No scheduler/daemon and no notebooks yet. |
+| Security engagements, scope guard, evidence chain, findings, signed reports | implemented | `z-security` | 21 tests: wildcard/CIDR/ports/out-of-scope, break-glass, pre-execution blocking, Ed25519 evidence chain, tamper detection, signed markdown/HTML. It does not bundle scanners; it governs commands you run. |
+| Agent adapters, profiles, approval broker, supervisor, MCP server | implemented (foreground) | `z-agents` | 21 tests: pattern parsing, policy denial, single-use tokens/replay, audit, PTY agent run, MCP tool calls, path escape, approval-required path. Agents run in the CLI process, not the session daemon, so they are not durable across a UI restart. |
+| Agent policy actions | implemented | `z-policy` | `agent.tool.call`, `agent.fs.*`, `agent.exec`, `agent.shell`, `agent.net`, `agent.secret.read`; deny by default. |
+| TUI blocks, in-session search, rerun, OSC 9;4 progress | partial | `tui` | Shell integration and blocks are wired into TUI sessions; `F11` opens a block/search overlay with rerun. Persisted block search and a full approval modal are CLI-only. |
+| Desktop notifications, badges | partial | OSC 9/9;4 parsed; TUI title shows progress | No OS notification integration, no tab badge rollup. |
+| Copy mode / vi motions | not started | — | The blueprint's copy mode is not implemented; terminal text selection in the TUI is not yet a feature. |
+| GPU renderer | not started | — | `z ui` remains ratatui; `ui.gpu` is a config field only. |
+| Remote SSH domains, durable remote sessions, SFTP | not started | — | System `ssh` can still be run inside a shell, but there is no `z-remote`. |
+| Web client / sharing | not started | — | No HTTP/WS listener. `remote.web_*` config is validated but unused. |
+| Team sync, SSO/SCIM/RBAC, fleet policy | not started | — | Existing enterprise stubs are unrelated to the blueprint control plane. |
+| wasm plugin host | not started | — | `plugin` only validates manifests; no runtime. |
+| Model router (cost/latency/fallback/budgets) | partial | `ai` | Provider registry and a simple router exist; per-day budgets, circuit breakers and fallback chains are not enforced. |
+| Landlock/seccomp/cgroup/network namespace | not started | — | Existing hardening is privilege/rlimit based. |
+| Audit ledger Ed25519 signing | partial | `z-audit` remains hash-chained | Checkpoints, evidence and reports are Ed25519-signed. The general audit log is still SHA-256 chained without a signature. |
+| Notifications, accessibility, i18n | not started | — | No screen-reader mode, translations or RTL handling. |
+| Performance benchmarks (vtebench, DOOM-fire, 100k search) | not started | — | No benchmark harness or CI gate; no figures are claimed. |
+
+---
+
+## 2. Command surface added in this pass
+
+```text
+z session   list|create|attach|replay|blocks|input|resize|signal|close|status|stop|daemon
+z workspace list|show|save|delete|restore [--dry-run|--approve|--restore policy]
+z blocks    list|search|show|stats|verify|export|import|gc
+z context   index|search|pack|symbols|status|clear
+z checkpoint create|list|show|diff|restore|sign|verify|gc
+z workflow  validate|run|list|show
+z engagement create|list|show|scope-check|run|evidence|note|verify|finding|findings|report
+z agent     adapters|profiles|list|dashboard|run|resume|fork|approvals|approve|deny|trace
+z mcp       serve --agent <id> --profile <profile> --workspace <dir>
+z config    show|validate|paths|import|actions|keys|edit|init  (legacy get/set/secrets retained)
+z ui        terminal with shell-integration blocks and F11 block/search overlay
+```
+
+All destructive or agentic paths are deny-by-default and audited:
+
+- `z engagement run` checks scope **before** spawning the command; out-of-scope
+  attempts are appended to the evidence chain as `denied` records.
+- Workflow shell/agent steps produce audit events; approvals are explicit;
+  HTTP requires `allow_http` plus a host allowlist.
+- MCP tools run under an agent profile; write/delete/exec can require an
+  approval that a separate `z agent approve <id>` process grants.
+- Checkpoint restore refuses a manifest whose Ed25519 signature is invalid.
+
+---
+
+## 3. Known limitations (not marketing copy)
+
+1. **TUI keybindings are only partly rebindable.** Bound F-key and Alt+
+   actions now dispatch through the loaded keymap (palette, tabs, panes,
+   editor, copilot, monitor, chat, blocks/search, quit, tab select/next/prev,
+   pane next). Actions with no TUI implementation — copy mode, agent dashboard,
+   workspace save/open, font scaling — fall through or do nothing, so the “every
+   action rebindable” criterion is not fully met.
+2. **Agents are not daemon-owned.** `z agent run` owns the PTY in-process.
+   Closing the CLI ends the agent. Session daemon integration is future work.
+3. **State detection is approximate.** Adapter manifests support `hooks` and
+   `jsonl` modes, but the current detector only evaluates screen patterns for
+   all modes; the UI labels this as approximate. Do not treat `waiting_input`
+   as exact.
+4. **Bash command capture is incomplete for compound commands** (pipelines,
+   loops) because bash exposes only the currently executing simple command to
+   its DEBUG trap. zsh/fish hooks are better but were not runnable here.
+5. **No scrollback persistence for raw session output.** Blocks are persisted
+   to SQLite; a daemon restart loses the live screen and raw ring buffer.
+6. **Checkpoint/hunk workflow is file-level.** Hunk diffs are displayed, but
+   there is no “accept only this hunk” operation yet.
+7. **Windows support is not complete.** The session daemon/client are Unix
+   socket-only; the Windows named-pipe transport from the blueprint is absent.
+8. **Security convenience is deliberate, not a scanner.** Target extraction
+   from commands only recognizes URLs and IP literals; pass `--target` for
+   hostnames. Break-glass is local and audited, not multi-party.
+9. **Signing is local-key signing.** It detects tampering by someone without
+   the key; a local attacker who can read `signing.key` can re-sign. The key is
+   stored `0600`.
+10. **No claim of performance.** No benchmarks were run for this pass, so the
+    blueprint's latency/FPS/RAM targets remain unverified.
+
+---
+
+## 4. Verification performed
+
+```sh
+cargo test --workspace       # all crate unit tests + workspace integration tests
+cargo test -p z-integration-tests --test cli_integration
+```
+
+The CLI integration suite now covers config validation/import, context
+indexing and packs, checkpoint rollback, workflow approval/parallel/audit,
+security scope blocking, and a real bash session with block replay. Shell
+integration for bash is additionally covered by
+`z-session/tests/shell_integration.rs`.
+
+Manual smoke checks during development also exercised `z mcp serve` with a
+real JSON-RPC handshake and `z agent run` with a local adapter.
+
+---
+
+## 5. Recommended next work (highest leverage first)
+
+1. TUI keybinding dispatch through `z-config::Keymap` for every action.
+2. Agent supervisor inside the session daemon + TUI approval dashboard.
+3. Copy mode and persisted FTS block search in the TUI.
+4. Daemon-owned scrollback persistence and Windows transport.
+5. Hunk-level checkpoint accept/reject.
+6. Benchmark harness and CI regression gate.
+7. SSH domains, web observer tokens, plugin wasmtime host, and the enterprise
+   control plane — none of which are started.

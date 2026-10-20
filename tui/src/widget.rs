@@ -26,7 +26,15 @@ pub fn render_session(f: &mut Frame, area: Rect, session: &Session, theme: &Them
     } else {
         String::new()
     };
-    let title = format!(" {} {}{} ", session.title, status, scroll);
+    let progress = session
+        .progress
+        .as_ref()
+        .map(|(state, pct)| match pct {
+            Some(pct) => format!(" {state} {pct}% "),
+            None => format!(" {state} "),
+        })
+        .unwrap_or_default();
+    let title = format!(" {} {}{}{} ", session.title, status, progress, scroll);
 
     let border_style = if focused {
         Style::default().fg(theme.primary)

@@ -174,6 +174,12 @@ pub struct App {
     chat: chat::ChatState,
     research: research::ResearchState,
 
+    keymap: z_config::Keymap,
+    show_blocks: bool,
+    block_query: String,
+    block_selected: usize,
+    block_scroll: usize,
+
     proficiency: views::Proficiency,
     shell: String,
     cwd: String,
@@ -193,6 +199,11 @@ impl App {
             .unwrap_or_else(|_| ".".into());
         let config_dir = z_core::config::user_config_dir().unwrap_or_else(|| PathBuf::from("."));
         let data_dir = z_core::config::user_data_dir().unwrap_or_else(|| PathBuf::from("."));
+        let keymap = z_config::load(&z_config::LoadOptions::with_env())
+            .map(|loaded| loaded.keymap().0)
+            .unwrap_or_else(|_| {
+                z_config::Keymap::from_table(&z_config::keys::default_keybindings()).0
+            });
         let mut app = Self {
             tabs: Vec::new(),
             active_tab: 0,
@@ -213,6 +224,11 @@ impl App {
             copilot: copilot::Copilot::default(),
             chat: chat::ChatState::default(),
             research: research::ResearchState::default(),
+            keymap,
+            show_blocks: false,
+            block_query: String::new(),
+            block_selected: 0,
+            block_scroll: 0,
             proficiency: views::Proficiency::Professional,
             shell: session::default_shell(),
             cwd,
@@ -589,6 +605,10 @@ impl App {
             editor.render(f, popup, &theme);
         }
 
+        if self.show_blocks {
+            self.draw_blocks(f, body, &theme);
+        }
+
         if self.show_palette {
             self.draw_palette(f, body, &theme);
         }
@@ -677,7 +697,7 @@ impl App {
         } else if self.show_sysmon {
             "System monitor: Esc closes".to_string()
         } else if self.view == View::Terminal {
-            "F7 tab · F8 split · F9 close · F2 palette · F3 editor · F4 AI · F5 monitor · F6 chat · Alt+V dashboard · F10 quit"
+            "F7 tab · F8 split · F9 close · F2 palette · F3 editor · F4 AI · F5 monitor · F6 chat · F11 blocks/search · Alt+V dashboard · F10 quit"
                 .to_string()
         } else {
             "1-0 views · Tab next · Alt+1..0 jump · Alt+H home · Alt+V terminal · F2 palette · F10 quit".to_string()
@@ -704,6 +724,220 @@ impl App {
                 .border_style(Style::default().fg(theme.secondary)),
         );
         f.render_widget(footer, area);
+    }
+
+    fn run_action(&mut self, action: &z_config::ActionBinding) -> Result<bool> {
+        let handled = match action.action.as_str() {
+            "palette.open" => {
+                self.show_palette = true;
+                self.palette_input.clear();
+                self.palette_hint.clear();
+                true
+            }
+            "app.quit" => {
+                self.running = false;
+                true
+            }
+            "tab.new" => {
+                self.new_tab();
+                true
+            }
+            "tab.close" => {
+                self.close_focused();
+                true
+            }
+            "tab.next" => {
+                if !self.tabs.is_empty() {
+                    self.active_tab = (self.active_tab + 1) % self.tabs.len();
+                }
+                true
+            }
+            "tab.prev" => {
+                if !self.tabs.is_empty() {
+                    self.active_tab = (self.active_tab + self.tabs.len() - 1) % self.tabs.len();
+                }
+                true
+            }
+            "tab.select" => {
+                if let Some(index) = action
+                    .arg
+                    .as_deref()
+                    .and_then(|arg| arg.parse::<usize>().ok())
+                {
+                    if index > 0 && index <= self.tabs.len() && self.view == View::Terminal {
+                        self.active_tab = index - 1;
+                    }
+                }
+                true
+            }
+            "pane.split" => {
+                self.split_pane();
+                self.set_view(View::Terminal);
+                true
+            }
+            "pane.close" => {
+                self.close_focused();
+                true
+            }
+            "pane.next" => {
+                if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+                    if !tab.sessions.is_empty() {
+                        tab.focus = (tab.focus + 1) % tab.sessions.len();
+                    }
+                }
+                true
+            }
+            "editor.toggle" => {
+                self.toggle_editor();
+                true
+            }
+            "copilot.toggle" => {
+                self.show_copilot = !self.show_copilot;
+                self.copilot_focus = self.show_copilot;
+                true
+            }
+            "sysmon.toggle" => {
+                self.show_sysmon = !self.show_sysmon;
+                true
+            }
+            "chat.toggle" => {
+                self.set_view(View::Chat);
+                true
+            }
+            "search.open" | "search.all" | "blocks.toggle" => {
+                self.show_blocks = true;
+                self.block_query.clear();
+                self.block_selected = 0;
+                self.block_scroll = 0;
+                true
+            }
+            "home.open" | "dashboard.open" => {
+                self.set_view(View::Home);
+                true
+            }
+            _ => false,
+        };
+        Ok(handled)
+    }
+
+    fn draw_blocks(&self, f: &mut Frame, body: Rect, theme: &Theme) {
+        let popup = centered_rect(body, 86, 74);
+        f.render_widget(Clear, popup);
+        let entries = self.filtered_blocks();
+        let mut lines: Vec<Line> = Vec::new();
+        lines.push(Line::from(vec![
+            Span::styled("search: ", Style::default().fg(theme.secondary)),
+            Span::styled(self.block_query.clone(), Style::default().fg(theme.text)),
+            Span::styled(
+                format!("  ({} blocks)", entries.len()),
+                Style::default().fg(theme.secondary),
+            ),
+        ]));
+        lines.push(Line::from(""));
+        if entries.is_empty() {
+            lines.push(Line::from(Span::styled(
+                "No blocks yet. Shell integration emits OSC 133 marks for bash, zsh and fish.",
+                Style::default().fg(theme.secondary),
+            )));
+        }
+        for (index, (block, output)) in entries.iter().enumerate() {
+            let selected = index == self.block_selected;
+            let style = if selected {
+                Style::default()
+                    .fg(theme.background)
+                    .bg(theme.primary)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(theme.text)
+            };
+            let marker = if block.is_failure() { "✗" } else { "✓" };
+            lines.push(Line::from(Span::styled(
+                format!("{} {}  {}", marker, block.status, block.command.trim()),
+                style,
+            )));
+            if let Some(first) = output.lines().find(|line| !line.trim().is_empty()) {
+                let trimmed: String = first.chars().take(160).collect();
+                lines.push(Line::from(Span::styled(
+                    format!("    {trimmed}"),
+                    Style::default().fg(theme.secondary),
+                )));
+            }
+        }
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(theme.primary))
+            .title(" Blocks / Search — ↑↓ select · Enter rerun · Esc close ");
+        let inner = block.inner(popup);
+        f.render_widget(block, popup);
+        f.render_widget(
+            Paragraph::new(lines)
+                .wrap(Wrap { trim: false })
+                .scroll((self.block_scroll as u16, 0)),
+            inner,
+        );
+    }
+
+    fn filtered_blocks(&self) -> Vec<(z_blocks::Block, String)> {
+        let Some(tab) = self.tabs.get(self.active_tab) else {
+            return Vec::new();
+        };
+        let Some(session) = tab.sessions.get(tab.focus) else {
+            return Vec::new();
+        };
+        let query = self.block_query.to_ascii_lowercase();
+        session
+            .blocks()
+            .iter()
+            .zip(session.block_outputs().iter())
+            .filter(|(block, output)| {
+                query.is_empty()
+                    || block.command.to_ascii_lowercase().contains(&query)
+                    || output.to_ascii_lowercase().contains(&query)
+            })
+            .map(|(block, output)| (block.clone(), output.clone()))
+            .collect()
+    }
+
+    fn handle_blocks_key(&mut self, key: KeyEvent) -> Result<()> {
+        let entries = self.filtered_blocks();
+        match key.code {
+            KeyCode::Esc | KeyCode::F(11) => {
+                self.show_blocks = false;
+            }
+            KeyCode::Up => {
+                self.block_selected = self.block_selected.saturating_sub(1);
+            }
+            KeyCode::Down => {
+                if !entries.is_empty() {
+                    self.block_selected = (self.block_selected + 1).min(entries.len() - 1);
+                }
+            }
+            KeyCode::PageUp => self.block_scroll = self.block_scroll.saturating_sub(10),
+            KeyCode::PageDown => self.block_scroll += 10,
+            KeyCode::Backspace => {
+                self.block_query.pop();
+                self.block_selected = 0;
+            }
+            KeyCode::Enter => {
+                if let Some((block, _)) = entries.get(self.block_selected) {
+                    let command = block.command.clone();
+                    if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+                        if let Some(session) = tab.sessions.get_mut(tab.focus) {
+                            session.write_line(&command);
+                        }
+                    }
+                    self.show_blocks = false;
+                }
+            }
+            KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                if self.block_query.len() < 200 {
+                    self.block_query.push(c);
+                    self.block_selected = 0;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
     }
 
     fn draw_palette(&self, f: &mut Frame, body: Rect, theme: &Theme) {
@@ -788,46 +1022,20 @@ impl App {
             self.handle_palette_key(key);
             return Ok(());
         }
-
-        if key.code == KeyCode::F(10) {
-            self.running = false;
+        if self.show_blocks {
+            self.handle_blocks_key(key)?;
             return Ok(());
         }
-        if key.code == KeyCode::F(2) {
-            self.show_palette = true;
-            self.palette_input.clear();
-            self.palette_hint.clear();
-            return Ok(());
-        }
-        if key.code == KeyCode::F(7) {
-            self.new_tab();
-            return Ok(());
-        }
-        if key.code == KeyCode::F(9) {
-            self.close_focused();
-            return Ok(());
-        }
-        if key.code == KeyCode::F(8) {
-            self.split_pane();
-            self.set_view(View::Terminal);
-            return Ok(());
-        }
-        if key.code == KeyCode::F(3) {
-            self.toggle_editor();
-            return Ok(());
-        }
-        if key.code == KeyCode::F(5) {
-            self.show_sysmon = !self.show_sysmon;
-            return Ok(());
-        }
-        if key.code == KeyCode::F(4) {
-            self.show_copilot = !self.show_copilot;
-            self.copilot_focus = self.show_copilot;
-            return Ok(());
-        }
-        if key.code == KeyCode::F(6) {
-            self.set_view(View::Chat);
-            return Ok(());
+        // Named actions honor the loaded keymap. This covers F2–F12, Alt+digits
+        // and Alt+letters; unbound chords fall through to the shell.
+        if !self.show_palette && !self.show_blocks {
+            if let Some(action) =
+                key_chord(&key).and_then(|chord| self.keymap.resolve(&chord).cloned())
+            {
+                if self.run_action(&action)? {
+                    return Ok(());
+                }
+            }
         }
 
         if key.code == KeyCode::F(1) {
@@ -1237,6 +1445,53 @@ fn pane_areas(area: Rect, count: usize) -> Vec<Rect> {
             vec![top[0], top[1], bottom[0], bottom[1]]
         }
     }
+}
+
+fn key_chord(key: &KeyEvent) -> Option<z_config::KeyChord> {
+    use KeyCode::*;
+    let mut ctrl = false;
+    let mut alt = false;
+    let mut shift = false;
+    for modifier in key.modifiers.iter() {
+        match modifier {
+            KeyModifiers::CONTROL => ctrl = true,
+            KeyModifiers::ALT => alt = true,
+            KeyModifiers::SHIFT => shift = true,
+            _ => {}
+        }
+    }
+    let name = match key.code {
+        Char(c) => {
+            // Plain characters belong to the shell; only modified chords are
+            // candidates for action lookup.
+            if !ctrl && !alt {
+                return None;
+            }
+            c.to_ascii_lowercase().to_string()
+        }
+        F(number) => format!("f{number}"),
+        Enter => "enter".into(),
+        Esc => "esc".into(),
+        Tab => "tab".into(),
+        Backspace => "backspace".into(),
+        Up => "up".into(),
+        Down => "down".into(),
+        Left => "left".into(),
+        Right => "right".into(),
+        Home => "home".into(),
+        End => "end".into(),
+        PageUp => "pgup".into(),
+        PageDown => "pgdn".into(),
+        Insert => "insert".into(),
+        Delete => "delete".into(),
+        _ => return None,
+    };
+    Some(z_config::KeyChord {
+        ctrl,
+        alt,
+        shift,
+        key: name,
+    })
 }
 
 fn centered_rect(area: Rect, percent_x: u16, percent_y: u16) -> Rect {

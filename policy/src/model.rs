@@ -55,6 +55,37 @@ pub struct ProcessPolicy {
     pub spawn: Vec<String>,
 }
 
+/// Agent tool governance (blueprint §2.3). Every field is an allowlist; the
+/// default is empty, so an agent can do nothing until a policy grants it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(deny_unknown_fields)]
+pub struct AgentPolicy {
+    /// File-read scopes (globs).
+    #[serde(default)]
+    pub read: Vec<String>,
+    /// File-write scopes (globs).
+    #[serde(default)]
+    pub write: Vec<String>,
+    /// File-delete scopes (globs). Delete is high risk.
+    #[serde(default)]
+    pub delete: Vec<String>,
+    /// Programs an agent may execute (exact basename or path).
+    #[serde(default)]
+    pub exec: Vec<String>,
+    /// Shell command prefixes an agent may run through a shell.
+    #[serde(default)]
+    pub shell: Vec<String>,
+    /// Hosts an agent may reach.
+    #[serde(default)]
+    pub net: Vec<String>,
+    /// Secret handles an agent may read.
+    #[serde(default)]
+    pub secrets: Vec<String>,
+    /// MCP/tool names (`server/tool`, `*` for all).
+    #[serde(default)]
+    pub tools: Vec<String>,
+}
+
 /// Tool allowlist (Phase 2 §38). A tool must be named here to be executed;
 /// permissions declared in a tool manifest never grant themselves.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -98,6 +129,8 @@ pub struct Policy {
     pub process: ProcessPolicy,
     #[serde(default)]
     pub tools: ToolsPolicy,
+    #[serde(default)]
+    pub agent: AgentPolicy,
 }
 
 /// Secure default policy (built-in): deny everything except workspace read.
@@ -121,6 +154,7 @@ impl Default for Policy {
             system: SystemPolicy::default(),
             process: ProcessPolicy::default(),
             tools: ToolsPolicy::default(),
+            agent: AgentPolicy::default(),
         }
     }
 }

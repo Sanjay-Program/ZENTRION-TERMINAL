@@ -1,0 +1,21 @@
+[package]
+name = "z-agents"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+regex.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+sha2.workspace = true
+portable-pty.workspace = true
+libc = "0.2"
+z-core = { path = "../core" }
+z-policy = { path = "../policy" }
+z-audit = { path = "../audit" }
+z-blocks = { path = "../z-blocks" }

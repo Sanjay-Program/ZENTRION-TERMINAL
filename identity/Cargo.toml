@@ -13,3 +13,4 @@ serde_json.workspace = true
 aes-gcm = "0.10"
 rand = "0.8"
 dirs = "5.0"
+ring = "0.17"

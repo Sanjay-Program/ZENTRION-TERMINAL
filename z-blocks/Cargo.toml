@@ -1,0 +1,20 @@
+[package]
+name = "z-blocks"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+rusqlite.workspace = true
+flate2.workspace = true
+sha2.workspace = true
+base64.workspace = true
+regex.workspace = true
+z-vt = { path = "../z-vt" }
+z-core = { path = "../core" }

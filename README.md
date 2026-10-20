@@ -36,6 +36,33 @@ PTY, tabs, splits, and a local control plane.
   cursor addressing, Unicode and resize all work.
 - **Tabs and panes.** Up to four panes per tab, unlimited tabs. Each pane has
   its own process, history and scrollback (10,000 lines).
+- **Durable sessions + command blocks.** `z session create` owns a PTY in a
+  per-user daemon; attach, detach, or `z session attach` from another terminal.
+  Shell integration emits OSC 133 marks, so commands become blocks with cwd,
+  exit code, duration and output hash, searchable with `z blocks search`.
+- **Workspaces and restore plans.** YAML tabs/panes/layouts with
+  `never|layout|layout+cwd|full` restore; commands only auto-run with explicit
+  opt-in. `z workspace restore --dry-run` shows the plan first.
+- **Context engine.** `z context index` builds an incremental SQLite FTS5 index
+  (git-aware, secret-excluding). `z context pack "query"` produces a
+  deterministic, token-budgeted, redacted context pack with citations.
+- **Checkpoints and rollback.** `z checkpoint create` snapshots the worktree
+  content-addressed (optionally Ed25519-signed); `z checkpoint diff` shows
+  hunks; `z checkpoint restore` returns files byte-for-byte and removes files
+  added since the snapshot.
+- **Workflows with approvals.** `z workflow run wf.yaml` executes
+  run/approve/parallel/conditional/HTTP/artifact steps with timeouts, secret
+  handles and audit records. HTTP is off unless allowlisted.
+- **Security engagements.** `z engagement create` records authorization and
+  scope; `z engagement run <id> <cmd> --target <host>` blocks out-of-scope
+  commands before execution and records a signed evidence chain; reports are
+  redacted and Ed25519-signed.
+- **Agent host + MCP proxy.** `z agent run claude-code` supervises any adapted
+  CLI agent; `z mcp serve` exposes policy-gated filesystem/process tools with
+  approvals and single-use tokens. `z agent approvals` is the approval inbox.
+- **Layered TOML config.** `z config show|validate|import|keys` with strict
+  errors (file:line), profiles, named actions and importers for Windows
+  Terminal, Ghostty and iTerm2.
 - **Command palette.** `F2` opens a palette that either runs a shell command in
   the focused pane or performs an internal action (`:theme`, `:split`, `:view`,
   `:e`, `:ai`, `:quit`).
@@ -71,6 +98,19 @@ PTY, tabs, splits, and a local control plane.
 - The sandbox is resource/privilege hardening (`no_new_privs`, rlimits,
   non-dumpable, umask, parent-death signal), **not** Landlock/seccomp
   filesystem confinement. `z platform` reports `resource-limits`.
+- **TUI keybindings are only partially rebindable.** `z config keys` validates
+  and prints the keymap, but the ratatui app still handles most keys directly.
+- **Agent runs are foreground.** `z agent run` owns the agent PTY in-process;
+  closing the CLI ends the agent. Agent state derived from screen patterns is
+  labelled approximate.
+- **Sessions are Unix-only.** The daemon/client use a Unix socket; the Windows
+  named-pipe transport is not implemented. Raw scrollback is not persisted
+  across a daemon restart (blocks are).
+- **No GPU renderer, web client, SSH domains, plugin runtime or team control
+  plane yet.** The design for them is in the blueprint, not in this binary.
+- **Checkpoint accept is file-level.** Hunks are displayed, but there is no
+  "accept this hunk only" operation.
+- **No performance numbers are claimed.** No benchmark harness has been run.
 - Plugins are validated (WASM header, manifest, SHA-256) but not executed;
   there is no embedded WASM runtime yet.
 - AI research is model-synthesized. It does not crawl the web by default, and
@@ -79,6 +119,9 @@ PTY, tabs, splits, and a local control plane.
   APIs and there is no hosted “cloud sync” service.
 - Enterprise sync requires your own control plane via
   `ZENTRION_ENTERPRISE_URL`.
+
+See [Implementation status](docs/IMPLEMENTATION-STATUS.md) for the full,
+test-backed matrix and known limitations.
 
 ## 📥 Install
 

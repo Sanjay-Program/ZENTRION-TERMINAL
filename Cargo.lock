@@ -57,6 +57,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ahash"
+version = "0.8.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a15f179cd60c4584b8a8c596927aadc462e27f2ca70c04e0071964a73ba7a75"
+dependencies = [
+ "cfg-if",
+ "once_cell",
+ "version_check",
+ "zerocopy",
+]
+
+[[package]]
 name = "aho-corasick"
 version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -872,6 +884,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "fallible-iterator"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2acce4a10f12dc2fb14a218589d4f1f62ef011b2d0cc4b3cb1bba8e94da14649"
+
+[[package]]
+name = "fallible-streaming-iterator"
+version = "0.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7360491ce676a36bf9bb3c56c1aa791658183a54d2744120f27285738d90465a"
+
+[[package]]
 name = "fancy-regex"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1107,6 +1131,15 @@ dependencies = [
 
 [[package]]
 name = "hashbrown"
+version = "0.14.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e5274423e17b7c9fc20b6e7e208532f9b19825d82dfd615708b70edd83df41f1"
+dependencies = [
+ "ahash",
+]
+
+[[package]]
+name = "hashbrown"
 version = "0.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "841d1cc9bed7f9236f321df977030373f4a4163ae1a7dbfe1a51a2c1a51d9100"
@@ -1125,6 +1158,15 @@ dependencies = [
  "allocator-api2",
  "equivalent",
  "foldhash",
+]
+
+[[package]]
+name = "hashlink"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ba4ff7128dee98c7dc9794b6a411377e1404dba1c97deb8d1a55297bd25d8af"
+dependencies = [
+ "hashbrown 0.14.5",
 ]
 
 [[package]]
@@ -1645,6 +1687,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "61ff90caf6077a803a240f62fdbe88645a890bbca49ef8174c3cb0404362171d"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "libsqlite3-sys"
+version = "0.30.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e99fb7a497b1e3339bc746195567ed8d3e24945ecd636e3619d20b9de9e9149"
+dependencies = [
+ "cc",
+ "pkg-config",
+ "vcpkg",
 ]
 
 [[package]]
@@ -2683,6 +2736,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "rusqlite"
+version = "0.32.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7753b721174eb8ff87a9a0e799e2d7bc3749323e773db92e0984debb00019d6e"
+dependencies = [
+ "bitflags 2.13.2",
+ "fallible-iterator",
+ "fallible-streaming-iterator",
+ "hashlink",
+ "libsqlite3-sys",
+ "smallvec",
+]
+
+[[package]]
 name = "rustc-hash"
 version = "2.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2927,6 +2994,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_spanned"
+version = "0.6.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf41e0cfaf7226dca15e8197172c295a782857fcb97fad1808a166870dee75a3"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "serde_urlencoded"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3058,6 +3134,12 @@ name = "simdutf8"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
+
+[[package]]
+name = "similar"
+version = "2.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbbb5d9659141646ae647b42fe094daf6c6192d1620870b449d9557f748b2daa"
 
 [[package]]
 name = "siphasher"
@@ -3487,6 +3569,47 @@ dependencies = [
 ]
 
 [[package]]
+name = "toml"
+version = "0.8.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dc1beb996b9d83529a9e75c17a1686767d148d70663143c7854d8b4a09ced362"
+dependencies = [
+ "serde",
+ "serde_spanned",
+ "toml_datetime",
+ "toml_edit",
+]
+
+[[package]]
+name = "toml_datetime"
+version = "0.6.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "22cddaf88f4fbc13c51aebbf5f8eceb5c7c5a9da2ac40a13519eb5b0a0e8f11c"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "toml_edit"
+version = "0.22.27"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41fe8c660ae4257887cf66394862d21dbca4a6ddd26f04a3560410406a2f819a"
+dependencies = [
+ "indexmap",
+ "serde",
+ "serde_spanned",
+ "toml_datetime",
+ "toml_write",
+ "winnow",
+]
+
+[[package]]
+name = "toml_write"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5d99f8c9a7727884afe522e9bd5edbfc91a3312b36a77b5fb8926e4c31a41801"
+
+[[package]]
 name = "tools"
 version = "0.1.0"
 dependencies = [
@@ -3570,6 +3693,7 @@ version = "0.1.0"
 dependencies = [
  "ai",
  "anyhow",
+ "chrono",
  "crossterm",
  "p2p",
  "portable-pty",
@@ -3578,7 +3702,11 @@ dependencies = [
  "sysinfo",
  "tokio",
  "vt100",
+ "z-blocks",
+ "z-config",
  "z-core",
+ "z-session",
+ "z-vt",
 ]
 
 [[package]]
@@ -4230,6 +4358,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
 
 [[package]]
+name = "winnow"
+version = "0.7.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df79d97927682d2fd8adb29682d1140b343be4ac0f08fd68b7765d9c059d3945"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
 name = "winreg"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4284,6 +4421,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "z-agents"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "libc",
+ "portable-pty",
+ "regex",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2 0.10.9",
+ "uuid",
+ "z-audit",
+ "z-blocks",
+ "z-core",
+ "z-policy",
+]
+
+[[package]]
 name = "z-audit"
 version = "0.1.0"
 dependencies = [
@@ -4291,6 +4447,24 @@ dependencies = [
  "serde",
  "serde_json",
  "z-core",
+]
+
+[[package]]
+name = "z-blocks"
+version = "0.1.0"
+dependencies = [
+ "base64 0.21.7",
+ "chrono",
+ "flate2",
+ "regex",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 1.0.69",
+ "uuid",
+ "z-core",
+ "z-vt",
 ]
 
 [[package]]
@@ -4304,16 +4478,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "z-checkpoint"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "flate2",
+ "libc",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "similar",
+ "uuid",
+ "walkdir",
+ "z-core",
+ "z-identity",
+]
+
+[[package]]
 name = "z-cli"
 version = "0.1.0"
 dependencies = [
  "agents",
  "ai",
+ "base64 0.21.7",
  "bundled",
+ "chrono",
  "clap",
+ "crossterm",
  "daemon",
  "devsec",
  "enterprise",
+ "libc",
  "log",
  "mcp",
  "plugin",
@@ -4325,9 +4521,14 @@ dependencies = [
  "tools",
  "tui",
  "update",
+ "z-agents",
  "z-audit",
+ "z-blocks",
  "z-capability",
+ "z-checkpoint",
  "z-compat",
+ "z-config",
+ "z-context",
  "z-core",
  "z-exec",
  "z-identity",
@@ -4336,8 +4537,11 @@ dependencies = [
  "z-policy",
  "z-projects",
  "z-registry",
+ "z-security",
+ "z-session",
  "z-tool",
  "z-version",
+ "z-workflow",
 ]
 
 [[package]]
@@ -4348,6 +4552,37 @@ dependencies = [
  "serde_json",
  "z-core",
  "z-native",
+]
+
+[[package]]
+name = "z-config"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "regex",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "thiserror 1.0.69",
+ "toml",
+ "z-core",
+]
+
+[[package]]
+name = "z-context"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "flate2",
+ "regex",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "walkdir",
+ "z-blocks",
+ "z-core",
 ]
 
 [[package]]
@@ -4386,6 +4621,7 @@ dependencies = [
  "aes-gcm",
  "dirs",
  "rand 0.8.8",
+ "ring",
  "serde",
  "serde_json",
  "uuid",
@@ -4458,6 +4694,48 @@ dependencies = [
 ]
 
 [[package]]
+name = "z-security"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "flate2",
+ "ipnet",
+ "libc",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "uuid",
+ "z-blocks",
+ "z-core",
+ "z-identity",
+]
+
+[[package]]
+name = "z-session"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.21.7",
+ "chrono",
+ "libc",
+ "portable-pty",
+ "regex",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2 0.10.9",
+ "thiserror 1.0.69",
+ "tokio",
+ "uuid",
+ "z-blocks",
+ "z-config",
+ "z-core",
+ "z-vt",
+]
+
+[[package]]
 name = "z-tool"
 version = "0.1.0"
 dependencies = [
@@ -4475,6 +4753,38 @@ dependencies = [
 [[package]]
 name = "z-version"
 version = "0.1.0"
+
+[[package]]
+name = "z-vt"
+version = "0.1.0"
+dependencies = [
+ "base64 0.21.7",
+ "regex",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "vt100",
+ "vte",
+]
+
+[[package]]
+name = "z-workflow"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "libc",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2 0.10.9",
+ "thiserror 1.0.69",
+ "ureq",
+ "uuid",
+ "z-blocks",
+ "z-core",
+ "z-identity",
+]
 
 [[package]]
 name = "zerocopy"

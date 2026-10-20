@@ -607,3 +607,260 @@ fn mcp_server_startup_requires_process_permission() {
         "got: {err}"
     );
 }
+
+// --- Terminal, workspace, context, checkpoint, workflow and security --------
+
+#[test]
+fn config_rejects_unknown_key_with_line_number() {
+    let env = Env::new("cfg-unknown");
+    let file = env.dir.join("bad.toml");
+    std::fs::write(&file, "[ui]\ntheme = \"dracula\"\nnot_a_key = 1\n").unwrap();
+    let (_, err, code) = run(
+        &env,
+        &env.project(),
+        &["config", "validate", "--file", file.to_str().unwrap()],
+    );
+    assert_ne!(code, 0);
+    assert!(err.contains("not_a_key"), "{err}");
+    assert!(err.contains(":3:"), "{err}");
+}
+
+#[test]
+fn config_imports_windows_terminal_font_and_binding() {
+    let env = Env::new("cfg-import");
+    let file = env.dir.join("settings.json");
+    std::fs::write(
+        &file,
+        r#"{"profiles":{"defaults":{"font":{"face":"Cascadia Code","size":14}}},"keybindings":[{"keys":"alt+2","command":"newTab"}]}"#,
+    )
+    .unwrap();
+    let (out, err, code) = run(
+        &env,
+        &env.project(),
+        &["config", "import", file.to_str().unwrap(), "--write"],
+    );
+    assert_eq!(code, 0, "{err}");
+    assert!(out.contains("font_family"), "{out}");
+    let written = std::fs::read_to_string(env.dir.join("config/config.toml")).unwrap();
+    assert!(written.contains("Cascadia Code"));
+    assert!(written.contains("alt+2"));
+}
+
+#[test]
+fn context_indexes_and_packs_with_citations() {
+    let env = Env::new("context");
+    let root = env.project();
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("src/lib.rs"),
+        "pub fn payment_total(amount: u64) -> u64 { amount * 2 }\n",
+    )
+    .unwrap();
+    let (_, err, code) = run(&env, &root, &["context", "index", "."]);
+    assert_eq!(code, 0, "{err}");
+    let (out, err, code) = run(
+        &env,
+        &root,
+        &["context", "pack", "payment", "--budget", "400"],
+    );
+    assert_eq!(code, 0, "{err}");
+    assert!(out.contains("src/lib.rs:"), "{out}");
+    assert!(out.contains("payment_total"), "{out}");
+    let (out, _, code) = run(&env, &root, &["context", "search", "payment"]);
+    assert_eq!(code, 0);
+    assert!(out.contains("src/lib.rs"));
+}
+
+#[test]
+fn checkpoint_rolls_back_and_removes_added_files() {
+    let env = Env::new("checkpoint");
+    let root = env.project();
+    std::fs::write(root.join("file.txt"), "original\n").unwrap();
+    let (out, err, code) = run(&env, &root, &["checkpoint", "create", "."]);
+    assert_eq!(code, 0, "{err}");
+    let id = out.trim();
+    assert!(id.starts_with("cp_"), "{out}");
+    std::fs::write(root.join("file.txt"), "modified\n").unwrap();
+    std::fs::write(root.join("added.txt"), "added\n").unwrap();
+    let (out, err, code) = run(&env, &root, &["checkpoint", "diff", id, "."]);
+    assert_eq!(code, 0, "{err}");
+    assert!(
+        out.contains("Modified file.txt") || out.contains("Modified"),
+        "{out}"
+    );
+    assert!(out.contains("added.txt"), "{out}");
+    let (_, err, code) = run(
+        &env,
+        &root,
+        &["checkpoint", "restore", id, ".", "--no-backup"],
+    );
+    assert_eq!(code, 0, "{err}");
+    assert_eq!(
+        std::fs::read_to_string(root.join("file.txt")).unwrap(),
+        "original\n"
+    );
+    assert!(!root.join("added.txt").exists());
+}
+
+#[test]
+fn workflow_runs_approval_condition_and_parallel() {
+    let env = Env::new("workflow");
+    let root = env.project();
+    let file = root.join("wf.yaml");
+    std::fs::write(
+        &file,
+        r#"
+name: it
+steps:
+  - id: hello
+    run: "echo hello"
+  - id: gate
+    approve: "proceed"
+  - id: after
+    run: "echo after"
+    when: "steps.gate.approved"
+  - id: fan
+    parallel:
+      - id: a
+        run: "echo a"
+      - id: b
+        run: "echo b"
+"#,
+    )
+    .unwrap();
+    let (out, err, code) = run(
+        &env,
+        &root,
+        &["workflow", "run", file.to_str().unwrap(), "--approve"],
+    );
+    assert_eq!(code, 0, "{err}");
+    assert!(out.contains("Succeeded"), "{out}");
+    assert!(out.contains("gate"), "{out}");
+    let (out, _, code) = run(&env, &root, &["audit", "verify"]);
+    assert_eq!(code, 0);
+    assert!(out.contains("verified"), "{out}");
+}
+
+#[test]
+fn security_blocks_out_of_scope_before_execution() {
+    let env = Env::new("security");
+    let root = env.project();
+    let (out, err, code) = run(
+        &env,
+        &root,
+        &[
+            "engagement",
+            "create",
+            "--name",
+            "IT",
+            "--client",
+            "Acme",
+            "--authorization",
+            "Signed authorization for integration testing",
+            "--authorized-by",
+            "tester",
+            "--scope",
+            "example.com",
+            "--rule",
+            "stay in scope",
+        ],
+    );
+    assert_eq!(code, 0, "{err}");
+    let id = out.trim().to_string();
+    let marker = root.join("marker");
+    let command = format!("touch {}", marker.display());
+    let (_, err, code) = run(
+        &env,
+        &root,
+        &[
+            "engagement",
+            "run",
+            &id,
+            &command,
+            "--target",
+            "evil.example",
+        ],
+    );
+    assert_ne!(code, 0);
+    assert!(
+        err.contains("out of scope") || err.contains("blocked"),
+        "{err}"
+    );
+    assert!(!marker.exists(), "out-of-scope command must not run");
+    let (out, _, code) = run(&env, &root, &["engagement", "verify", &id]);
+    assert_eq!(code, 0);
+    assert!(out.contains("valid"), "{out}");
+}
+
+#[test]
+fn session_daemon_records_blocks_and_replays() {
+    if !cfg!(unix) {
+        return;
+    }
+    let env = Env::new("session");
+    let root = env.project();
+    let socket = env.dir.join("session.sock");
+    // Point the client at an isolated socket; the CLI spawns the daemon.
+    let mut cmd = env.cmd_in(&root);
+    cmd.env("ZENTRION_SESSION_SOCKET", &socket);
+    let out = cmd
+        .args([
+            "session",
+            "create",
+            "--shell",
+            "/bin/bash",
+            "--cwd",
+            root.to_str().unwrap(),
+        ])
+        .output()
+        .expect("create session");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let id = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    assert!(id.starts_with("s_"));
+    let mut cmd = env.cmd_in(&root);
+    cmd.env("ZENTRION_SESSION_SOCKET", &socket);
+    cmd.args(["session", "input", &id, "echo integration-block"]);
+    assert!(cmd.status().unwrap().success());
+    // Blocks are persisted asynchronously by the daemon's writer thread; poll
+    // instead of assuming a fixed delay.
+    let mut value = serde_json::Value::Null;
+    let mut found = false;
+    for _ in 0..40 {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        let mut cmd = env.cmd_in(&root);
+        cmd.env("ZENTRION_SESSION_SOCKET", &socket);
+        cmd.args(["--json", "session", "attach", &id]);
+        let out = cmd.output().unwrap();
+        assert!(out.status.success());
+        value = serde_json::from_slice(&out.stdout).unwrap();
+        found = value["blocks"].as_array().unwrap().iter().any(|block| {
+            block["command"]
+                .as_str()
+                .map(|command| command.contains("echo integration-block"))
+                .unwrap_or(false)
+        });
+        if found {
+            break;
+        }
+    }
+    assert!(
+        value["contents"]
+            .as_str()
+            .unwrap()
+            .contains("integration-block"),
+        "screen contents missing command output"
+    );
+    assert!(found, "command block was not recorded: {value:#}");
+    let mut cmd = env.cmd_in(&root);
+    cmd.env("ZENTRION_SESSION_SOCKET", &socket);
+    cmd.args(["session", "close", &id, "--force"]);
+    assert!(cmd.status().unwrap().success());
+    let mut cmd = env.cmd_in(&root);
+    cmd.env("ZENTRION_SESSION_SOCKET", &socket);
+    cmd.args(["session", "stop"]);
+    let _ = cmd.status();
+}

@@ -3,6 +3,7 @@
 //! Every request must carry an identity. Phase 1 resolves the local user
 //! types for future phases but are NOT creatable here.
 
+pub mod signing;
 pub mod vault;
 
 use serde::{Deserialize, Serialize};

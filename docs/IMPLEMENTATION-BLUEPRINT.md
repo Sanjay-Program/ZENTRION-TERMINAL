@@ -8,6 +8,13 @@ UX flows, security boundaries, performance budgets and delivery milestones.
 
 > This is a design document. Features marked **existing** are implemented today;
 > everything else is a build plan. Do not market planned work as shipped.
+>
+> **Implementation status (2026-10-20):** `z-vt`, `z-blocks`, `z-session`,
+> `z-config`, `z-context`, `z-checkpoint`, `z-workflow`, `z-security` and
+> `z-agents` now exist with tests and are wired into the `z` CLI; see
+> [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md). SSH/web/GPU/plugin/
+> enterprise and the sandbox roadmap remain unimplemented. The blueprint's
+> targets and UX remain the plan, not a description of the current build.
 
 ---
 

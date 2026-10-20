@@ -220,3 +220,121 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod agent_policy_tests {
+    use super::*;
+    use crate::eval::{Decision, PolicyRequest, Risk};
+
+    fn policy() -> Policy {
+        let mut policy = Policy::default();
+        policy.agent.read = vec!["./**".into()];
+        policy.agent.write = vec!["./src/**".into()];
+        policy.agent.delete = vec!["./tmp/**".into()];
+        policy.agent.exec = vec!["cargo".into()];
+        policy.agent.net = vec!["api.example.com".into()];
+        policy.agent.tools = vec!["github/create_issue".into()];
+        policy
+    }
+
+    #[test]
+    fn agent_actions_are_scoped_and_deny_by_default() {
+        let p = policy();
+        let write = evaluate(
+            &p,
+            &PolicyRequest {
+                actor: "agent:test".into(),
+                action: "agent.fs.write".into(),
+                resource: "src/main.rs".into(),
+            },
+        );
+        assert_eq!(write.decision, Decision::Allow);
+        let outside = evaluate(
+            &p,
+            &PolicyRequest {
+                actor: "agent:test".into(),
+                action: "agent.fs.write".into(),
+                resource: "docs/readme.md".into(),
+            },
+        );
+        assert_eq!(outside.decision, Decision::Deny);
+        let unknown = evaluate(
+            &p,
+            &PolicyRequest {
+                actor: "agent:test".into(),
+                action: "agent.fs.chmod".into(),
+                resource: "src/main.rs".into(),
+            },
+        );
+        assert_eq!(unknown.decision, Decision::Deny);
+    }
+
+    #[test]
+    fn agent_delete_is_high_risk_and_requires_approval() {
+        let decision = evaluate(
+            &policy(),
+            &PolicyRequest {
+                actor: "agent:test".into(),
+                action: "agent.fs.delete".into(),
+                resource: "tmp/out.bin".into(),
+            },
+        );
+        assert_eq!(decision.decision, Decision::RequireApproval);
+        assert_eq!(decision.risk, Risk::High);
+    }
+
+    #[test]
+    fn agent_secret_read_is_critical_and_denied_without_grant() {
+        let decision = evaluate(
+            &policy(),
+            &PolicyRequest {
+                actor: "agent:test".into(),
+                action: "agent.secret.read".into(),
+                resource: "OPENAI_API_KEY".into(),
+            },
+        );
+        assert_eq!(decision.decision, Decision::Deny);
+        assert_eq!(decision.risk, Risk::Critical);
+    }
+
+    #[test]
+    fn agent_tool_and_exec_matching_is_exact() {
+        let p = policy();
+        let exact = evaluate(
+            &p,
+            &PolicyRequest {
+                actor: "agent:test".into(),
+                action: "agent.exec".into(),
+                resource: "/usr/bin/cargo".into(),
+            },
+        );
+        assert_eq!(exact.decision, Decision::Allow);
+        let lookalike = evaluate(
+            &p,
+            &PolicyRequest {
+                actor: "agent:test".into(),
+                action: "agent.exec".into(),
+                resource: "cargo-evil".into(),
+            },
+        );
+        assert_eq!(lookalike.decision, Decision::Deny);
+        let tool = evaluate(
+            &p,
+            &PolicyRequest {
+                actor: "agent:test".into(),
+                action: "agent.tool.call".into(),
+                resource: "mcp:github/create_issue".into(),
+            },
+        );
+        assert_eq!(tool.decision, Decision::Allow);
+        let other_tool = evaluate(
+            &p,
+            &PolicyRequest {
+                actor: "agent:test".into(),
+                action: "agent.tool.call".into(),
+                resource: "mcp:github/delete_repo".into(),
+            },
+        );
+        assert_eq!(other_tool.decision, Decision::Deny);
+    }
+}
