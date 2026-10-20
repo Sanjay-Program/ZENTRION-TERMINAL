@@ -38,6 +38,10 @@ pub struct Session {
     pub progress: Option<(String, Option<u8>)>,
     /// Last OSC 9 notification (title, body).
     pub notification: Option<(String, String)>,
+    /// Monotonic counter so the UI can show each notification once.
+    pub notification_seq: u64,
+    /// Unread notifications/failed blocks for the tab badge.
+    pub unread: usize,
 
     master: Box<dyn MasterPty + Send>,
     writer: Box<dyn Write + Send>,
@@ -191,6 +195,8 @@ impl Session {
             integration: launch.integration,
             progress: None,
             notification: None,
+            notification_seq: 0,
+            unread: 0,
             scanner: VtScanner::new(z_vt::VtPolicy::default()),
             splitter: z_session::MarkerSplitter::new(),
             recorder: BlockRecorder::new(&session_id, program, cwd.display().to_string()),
@@ -304,6 +310,11 @@ impl Session {
     }
 
     /// Full scrollback plus the live screen, used by copy mode.
+    /// Clear the tab badge for this session.
+    pub fn clear_unread(&mut self) {
+        self.unread = 0;
+    }
+
     pub fn full_text(&mut self) -> String {
         let saved = self.scroll_offset;
         let max = self.parser.screen().scrollback_len();
@@ -318,6 +329,9 @@ impl Session {
             return;
         }
         let plain = z_blocks::strip_ansi(&String::from_utf8_lossy(&output));
+        if block.is_failure() {
+            self.unread = self.unread.saturating_add(1);
+        }
         self.blocks.push(block);
         self.block_outputs.push(plain);
         if self.blocks.len() > 500 {
@@ -352,6 +366,8 @@ impl Session {
                     }
                     OscEvent::Notification { title, body } => {
                         self.notification = Some((title, body));
+                        self.notification_seq = self.notification_seq.saturating_add(1);
+                        self.unread = self.unread.saturating_add(1);
                     }
                     OscEvent::Title(title) => {
                         if !title.is_empty() {

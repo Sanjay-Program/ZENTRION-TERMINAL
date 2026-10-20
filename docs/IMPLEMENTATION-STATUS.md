@@ -33,16 +33,17 @@ Legend: **implemented** · **partial** (working with a stated limit) ·
 | TUI blocks, global search, rerun, OSC 9;4 progress | implemented (session-local + persisted search) | `tui` | Shell integration and blocks are wired into TUI sessions; `F11` searches both the live session and the persisted SQLite block store and can rerun a command. A full approval modal is still CLI-only. |
 | Copy mode, vi motions, OSC 52 clipboard | implemented (line-based) | `tui/src/copy.rs` | Six unit tests for motions, inclusive Unicode-safe selections and search/wrap. `F12` opens copy mode, `v` selects, `y` yanks via OSC 52. Rectangular block selection is not implemented. |
 | Hyperlink confirmation | implemented (copy mode) | `tui` | `o` detects a safe http/https/mailto link on the cursor line, shows the exact target, and opens it only on Enter/y using the OS opener. No auto-open and no shell. File links are detected by `z-vt` but are not opened from the TUI yet. |
-| Desktop notifications, badges | partial | OSC 9/9;4 parsed; TUI title shows progress | No OS notification integration, no tab badge rollup. |
+| Desktop notifications, tab badges | implemented (optional desktop integration) | `tui` | OSC 9 shows a footer banner and a per-tab unread/failed badge; `ui.desktop_notifications = true` invokes `notify-send` (Linux) or `osascript` (macOS). No sound, focus detection or per-approval badges yet. |
 | GPU renderer | not started | — | `z ui` remains ratatui; `ui.gpu` is a config field only. |
-| Remote SSH domains, durable remote sessions, SFTP | not started | — | System `ssh` can still be run inside a shell, but there is no `z-remote`. |
+| Remote SSH execution, shells, transfers, forwarding | partial | `z-remote` | 12 unit tests plus a fake-OpenSSH CLI test. Strict host-key verification is always on; jump hosts, identity, port, scp upload/download and detached local port forwards are implemented. Remote shells run as daemon-owned command sessions. **Not implemented:** native SSH (uses system OpenSSH), durable remote daemons/sessions, SFTP protocol, web client. |
 | Web client / sharing | not started | — | No HTTP/WS listener. `remote.web_*` config is validated but unused. |
 | Team sync, SSO/SCIM/RBAC, fleet policy | not started | — | Existing enterprise stubs are unrelated to the blueprint control plane. |
 | wasm plugin host | not started | — | `plugin` only validates manifests; no runtime. |
 | Model router (registry, cost/latency/quality/local-first, budgets, fallback, cache) | implemented | `z-models` | 23 unit tests plus an end-to-end mock-provider CLI test. Durable daily ledger with hard reservations, per-agent budgets, atomic reservations, retries/fallback, persisted circuit breakers and secret-safe response caching. No streaming/cancellation or embeddings yet; the cache is process-local. |
 | Landlock/seccomp/cgroup/network namespace | not started | — | Existing hardening is privilege/rlimit based. |
 | Audit ledger Ed25519 signing | partial | `z-audit` remains hash-chained | Checkpoints, evidence and reports are Ed25519-signed. The general audit log is still SHA-256 chained without a signature. |
-| Notifications, accessibility, i18n | not started | — | No screen-reader mode, translations or RTL handling. |
+| Accessibility | partial | `tui`, CLI | `ui.high_contrast` uses a high-contrast palette; `ui.reduced_motion` suppresses the busy spinner; `z session replay --plain` and `z blocks show --plain` emit ANSI-free text; keyboard navigation exists. No semantic screen-reader mode or focus announcements. |
+| i18n / RTL | not started | — | UI strings are English-only; no translation catalog or RTL layout. |
 | Performance benchmarks (vtebench, DOOM-fire, 100k search) | not started | — | No benchmark harness or CI gate; no figures are claimed. |
 
 ---
@@ -58,6 +59,7 @@ z checkpoint create|list|show|diff|restore|sign|verify|gc
 z workflow  validate|run|list|show
 z engagement create|list|show|scope-check|run|evidence|note|verify|finding|findings|report
 z models    list|route|ask|usage|doctor
+z remote    hosts|exec|shell|upload|download|forward|forwards|stop-forward|hostkey|doctor
 z agent     adapters|profiles|list|dashboard|run|resume|fork|stop|approvals|approve|deny|trace
 z mcp       serve --agent <id> --profile <profile> --workspace <dir>
 z config    show|validate|paths|import|actions|keys|edit|init  (legacy get/set/secrets retained)

@@ -399,6 +399,12 @@ enum Commands {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
+
+    /// SSH remote execution, shells, transfers and port forwarding
+    Remote {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
 }
 
 fn main() {
@@ -568,6 +574,7 @@ fn main() {
         Some(Commands::Workflow { args }) => terminal_cmd::workflow(&args, cli.json),
         Some(Commands::Engagement { args }) => terminal_cmd::engagement(&args, cli.json),
         Some(Commands::Models { args }) => terminal_cmd::models(&args, cli.json),
+        Some(Commands::Remote { args }) => terminal_cmd::remote(&args, cli.json),
         Some(Commands::Do { intent }) => {
             subsystems_cmd::do_intent(&intent, cli.project.clone(), cli.json)
         }

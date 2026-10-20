@@ -36,6 +36,17 @@
   redacted markdown/HTML reports.
 - Added Ed25519 signing to `z-identity` for checkpoint/evidence/report exports.
 
+### Remote SSH and notifications
+- Added `z-remote`: validated SSH destinations, system-OpenSSH execution,
+  interactive remote shells as daemon-owned sessions, scp upload/download and
+  detached local port forwarding. Host-key verification is always strict;
+  dangerous extra options (`ProxyCommand`, `StrictHostKeyChecking=no`, …) are
+  rejected. Tests use fake OpenSSH binaries and a CLI integration test.
+- TUI OSC 9 notifications now show a footer banner and per-tab unread/failed
+  badges; optional desktop notifications use `notify-send`/`osascript`.
+- Accessibility: high-contrast palette, reduced-motion busy indicator, and
+  ANSI-free `--plain` session/block output for screen readers and scripts.
+
 ### Model router and budgets
 - Added `z-models`: built-in provider registry (Ollama, OpenAI, Anthropic,
   Gemini, OpenRouter, Groq, custom endpoints), model-reference resolution and
@@ -73,7 +84,7 @@
 - Fixed z-blocks compile errors and two recorder/store test failures.
 - Fixed bash integration to pass `--rcfile` as a separate argument.
 - Restored SIGPIPE defaults so piping into `head` does not panic.
-- Added 48 end-to-end CLI tests including sessions, context, checkpoints,
+- Added 49 end-to-end CLI tests including sessions, context, checkpoints,
   workflows and security scope blocking.
 - Added [Implementation status](docs/IMPLEMENTATION-STATUS.md) with explicit
   partial and unimplemented areas.

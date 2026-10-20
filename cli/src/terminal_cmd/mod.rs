@@ -10,6 +10,7 @@ mod config;
 mod data;
 mod engagement;
 mod models;
+mod remote;
 mod session;
 mod workflow;
 
@@ -18,6 +19,7 @@ pub use config::config;
 pub use data::{blocks, checkpoint, context};
 pub use engagement::engagement;
 pub use models::models;
+pub use remote::remote;
 pub use session::{session, workspace};
 pub use workflow::workflow;
 

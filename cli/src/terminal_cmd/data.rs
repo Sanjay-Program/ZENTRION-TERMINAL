@@ -96,9 +96,13 @@ pub fn blocks(args: &[String], json_out: bool) -> ZenResult<()> {
             let output = store
                 .output(id)
                 .map_err(|e| map_err("cannot read block output", e))?;
-            if parsed.flag("--output") {
+            if parsed.flag("--output") || parsed.flag("--plain") {
+                let mut bytes = output.clone();
+                if parsed.flag("--plain") {
+                    bytes = z_blocks::strip_ansi(&String::from_utf8_lossy(&output)).into_bytes();
+                }
                 std::io::stdout()
-                    .write_all(&output)
+                    .write_all(&bytes)
                     .map_err(|e| map_err("cannot write output", e))?;
                 return Ok(());
             }

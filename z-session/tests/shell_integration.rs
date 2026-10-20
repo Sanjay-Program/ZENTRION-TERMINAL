@@ -21,6 +21,7 @@ fn bash_shell_integration_records_a_command_block() {
         command_file: dir.join("cmd"),
         login: false,
         heuristic_blocks: false,
+        command: None,
     };
     let session = SessionHandle::spawn(opts, None).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(800));

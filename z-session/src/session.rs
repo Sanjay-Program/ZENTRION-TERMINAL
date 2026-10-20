@@ -110,6 +110,8 @@ pub struct SessionOptions {
     pub command_file: PathBuf,
     pub login: bool,
     pub heuristic_blocks: bool,
+    /// Run this argv directly instead of a shell (remote domains, programs).
+    pub command: Option<Vec<String>>,
 }
 
 impl SessionOptions {
@@ -127,6 +129,7 @@ impl SessionOptions {
             command_file: std::env::temp_dir().join("zentrion-cmd"),
             login: false,
             heuristic_blocks: false,
+            command: None,
         }
     }
 }
@@ -353,15 +356,39 @@ impl SessionHandle {
     /// Spawn a shell in a new PTY and start the reader thread.
     pub fn spawn(options: SessionOptions, block_sink: Option<BlockSink>) -> Result<Arc<Self>> {
         let id = format!("s_{}", Uuid::new_v4().simple());
-        let launch = integration::plan_launch(
-            &options.shell,
-            options.integration,
-            options.integration_dir.as_deref(),
-            &id,
-            &options.command_file,
-            &options.env,
-            options.login,
-        );
+        let launch = if let Some(command) = &options.command {
+            let mut command = command.clone();
+            if command.is_empty() {
+                return Err(SessionError::Pty("empty command".into()));
+            }
+            let program = command.remove(0);
+            let mut env = vec![
+                ("ZENTRION_SESSION_ID".to_string(), id.clone()),
+                (
+                    "TERM".to_string(),
+                    std::env::var("TERM").unwrap_or_else(|_| "xterm-256color".into()),
+                ),
+            ];
+            env.extend(options.env.iter().cloned());
+            integration::Launch {
+                program,
+                args: command,
+                env,
+                shell: integration::ShellKind::Other,
+                integration: false,
+                notes: vec!["direct command session".into()],
+            }
+        } else {
+            integration::plan_launch(
+                &options.shell,
+                options.integration,
+                options.integration_dir.as_deref(),
+                &id,
+                &options.command_file,
+                &options.env,
+                options.login,
+            )
+        };
         let pty_system = native_pty_system();
         let size = PtySize {
             rows: options.rows.max(2),
@@ -416,7 +443,11 @@ impl SessionHandle {
             status: "running".into(),
             pid,
             integration: launch.integration,
-            shell_kind: launch.shell.name().to_string(),
+            shell_kind: if options.command.is_some() {
+                "program".to_string()
+            } else {
+                launch.shell.name().to_string()
+            },
         };
         let (events, _) = broadcast::channel(1024);
         let session = Arc::new(Self {

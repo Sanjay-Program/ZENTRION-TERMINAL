@@ -46,6 +46,14 @@ PTY, tabs, splits, and a local control plane.
 - **Workspaces and restore plans.** YAML tabs/panes/layouts with
   `never|layout|layout+cwd|full` restore; commands only auto-run with explicit
   opt-in. `z workspace restore --dry-run` shows the plan first.
+- **Remote SSH.** `z remote exec|shell|upload|download|forward` uses system
+  OpenSSH with strict host-key verification, jump hosts, identity files and
+  detached local port forwards. Remote shells run as daemon-owned command
+  sessions. Durable remote daemons, SFTP and a web client are not implemented.
+- **Notifications and accessibility.** OSC 9 notifications show a footer banner
+  and tab badge; optional desktop notifications use `notify-send`/`osascript`.
+  High-contrast and reduced-motion settings are honored, and
+  `z session replay --plain` / `z blocks show --plain` emit screen-reader-safe text.
 - **Model router.** `z models list|route|ask|usage` reads a provider registry
   (local Ollama, OpenAI, Anthropic, Gemini, OpenRouter, Groq, custom endpoints),
   routes by local-only/local-first/cost/latency/quality/manual policy, reserves
@@ -116,8 +124,9 @@ PTY, tabs, splits, and a local control plane.
 - **Sessions are Unix-only.** The daemon/client use a Unix socket; the Windows
   named-pipe transport is not implemented. Raw scrollback is not persisted
   across a daemon restart (blocks are).
-- **No GPU renderer, web client, SSH domains, plugin runtime or team control
-  plane yet.** The design for them is in the blueprint, not in this binary.
+- **No GPU renderer, web client, plugin runtime, durable remote daemon or team
+  control plane yet.** The design for them is in the blueprint, not in this
+  binary.
 - **Checkpoint accept is file-level.** Hunks are displayed, but there is no
   "accept this hunk only" operation.
 - **Model streaming is not implemented.** Model completions wait for the full

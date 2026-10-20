@@ -11,14 +11,21 @@ use ratatui::{
 };
 
 /// Draw the live screen of `session` inside `area`.
-pub fn render_session(f: &mut Frame, area: Rect, session: &Session, theme: &Theme, focused: bool) {
+pub fn render_session(
+    f: &mut Frame,
+    area: Rect,
+    session: &Session,
+    theme: &Theme,
+    focused: bool,
+    reduced_motion: bool,
+) {
     if area.width < 2 || area.height < 2 {
         return;
     }
 
     let status = match &session.exit_status {
         Some(s) => format!(" exited · {s} "),
-        None if session.is_busy() => " ● ".to_string(),
+        None if session.is_busy() && !reduced_motion => " ● ".to_string(),
         None => " ".to_string(),
     };
     let scroll = if session.scroll_offset > 0 {

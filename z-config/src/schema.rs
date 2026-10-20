@@ -145,6 +145,8 @@ pub struct UiConfig {
     pub high_contrast: bool,
     pub reduced_motion: bool,
     pub screen_reader: bool,
+    /// Send OSC 9 notifications to the desktop when supported.
+    pub desktop_notifications: bool,
     pub status_widgets: Vec<String>,
 }
 
@@ -163,6 +165,7 @@ impl Default for UiConfig {
             high_contrast: false,
             reduced_motion: false,
             screen_reader: false,
+            desktop_notifications: false,
             status_widgets: vec!["cwd".into(), "git".into(), "agent".into()],
         }
     }

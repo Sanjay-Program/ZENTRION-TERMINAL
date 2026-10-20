@@ -23,6 +23,22 @@ impl Default for Theme {
 }
 
 impl Theme {
+    /// High-contrast palette for accessibility settings.
+    pub fn high_contrast() -> Self {
+        Self {
+            name: "high-contrast".into(),
+            primary: Color::Rgb(0, 255, 255),
+            secondary: Color::Rgb(200, 200, 200),
+            accent: Color::Rgb(255, 255, 0),
+            background: Color::Black,
+            surface: Color::Black,
+            text: Color::White,
+            success: Color::Rgb(0, 255, 0),
+            warning: Color::Rgb(255, 255, 0),
+            error: Color::Rgb(255, 80, 80),
+        }
+    }
+
     pub fn named(name: &str) -> Option<Self> {
         let key = name.trim().to_ascii_lowercase();
         let theme = match key.as_str() {

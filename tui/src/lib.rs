@@ -188,6 +188,11 @@ pub struct App {
     approvals: Vec<z_agents::ApprovalRequest>,
     approval_selected: usize,
     approval_status: String,
+    desktop_notifications: bool,
+    reduced_motion: bool,
+    notification_banner: Option<(String, Instant)>,
+    seen_notifications: std::collections::HashMap<(usize, usize), u64>,
+    last_desktop_notification: Option<Instant>,
     block_query: String,
     block_selected: usize,
     block_scroll: usize,
@@ -205,7 +210,7 @@ pub struct App {
 
 impl App {
     pub fn new() -> Self {
-        let theme = Theme::load();
+        let mut theme = Theme::load();
         let cwd = std::env::current_dir()
             .map(|p| p.display().to_string())
             .unwrap_or_else(|_| ".".into());
@@ -216,6 +221,13 @@ impl App {
             .as_ref()
             .map(|loaded| loaded.config.ui.hyperlink_schemes.clone())
             .unwrap_or_else(|| vec!["https".into(), "http".into(), "mailto".into()]);
+        let ui_settings = loaded_config
+            .as_ref()
+            .map(|loaded| loaded.config.ui.clone())
+            .unwrap_or_default();
+        if ui_settings.high_contrast {
+            theme = Theme::high_contrast();
+        }
         let keymap = loaded_config
             .as_ref()
             .map(|loaded| loaded.keymap().0)
@@ -255,6 +267,11 @@ impl App {
             approvals: Vec::new(),
             approval_selected: 0,
             approval_status: String::new(),
+            desktop_notifications: ui_settings.desktop_notifications,
+            reduced_motion: ui_settings.reduced_motion,
+            notification_banner: None,
+            seen_notifications: std::collections::HashMap::new(),
+            last_desktop_notification: None,
             block_query: String::new(),
             block_selected: 0,
             block_scroll: 0,
@@ -301,6 +318,34 @@ impl App {
         for tab in &mut self.tabs {
             for session in &mut tab.sessions {
                 session.poll();
+            }
+        }
+        let mut notifications = Vec::new();
+        for (tab_index, tab) in self.tabs.iter().enumerate() {
+            for (pane_index, session) in tab.sessions.iter().enumerate() {
+                let seq = session.notification_seq;
+                if seq == 0 {
+                    continue;
+                }
+                let key = (tab_index, pane_index);
+                if self.seen_notifications.get(&key).copied().unwrap_or(0) < seq {
+                    self.seen_notifications.insert(key, seq);
+                    if let Some((title, body)) = &session.notification {
+                        notifications.push((title.clone(), body.clone()));
+                    }
+                }
+            }
+        }
+        if let Some((title, body)) = notifications.last().cloned() {
+            self.notification_banner = Some((format!("{title} — {body}"), Instant::now()));
+            let should_desktop = self.desktop_notifications
+                && self
+                    .last_desktop_notification
+                    .map(|last| last.elapsed() >= std::time::Duration::from_secs(2))
+                    .unwrap_or(true);
+            if should_desktop {
+                self.last_desktop_notification = Some(Instant::now());
+                desktop_notify(&title, &body);
             }
         }
         self.copilot.poll();
@@ -583,7 +628,14 @@ impl App {
                 for (index, rect) in rects.iter().copied().enumerate() {
                     if let Some(session) = tab.sessions.get_mut(index) {
                         let focused = index == tab.focus && !self.copilot_focus;
-                        widget::render_session(f, rect, session, &theme, focused);
+                        widget::render_session(
+                            f,
+                            rect,
+                            session,
+                            &theme,
+                            focused,
+                            self.reduced_motion,
+                        );
                         pane_rects.push(rect);
                     }
                 }
@@ -700,7 +752,14 @@ impl App {
             .enumerate()
             .map(|(index, tab)| {
                 let dead = tab.sessions.iter().all(|s| s.is_dead());
-                let marker = if dead { "×" } else { "" };
+                let unread: usize = tab.sessions.iter().map(|session| session.unread).sum();
+                let marker = if dead {
+                    "×".to_string()
+                } else if unread > 0 {
+                    format!("●{unread}")
+                } else {
+                    String::new()
+                };
                 Line::from(format!(" {}{} {} ", index + 1, marker, tab.title()))
             })
             .collect();
@@ -722,7 +781,17 @@ impl App {
     }
 
     fn draw_footer(&self, f: &mut Frame, area: Rect, theme: &Theme) {
-        let hint = if self.show_palette {
+        let hint = if let Some((banner, at)) = &self.notification_banner {
+            if at.elapsed() < std::time::Duration::from_secs(6) {
+                format!("🔔 {banner}")
+            } else if self.show_palette {
+                "Palette: type a shell command or :action · Enter runs · Esc closes".to_string()
+            } else if self.view == View::Terminal {
+                "F7 tab · F8 split · F9 close · F2 palette · F3 editor · F4 AI · F5 monitor · F6 chat · F11 blocks/search · F12 copy · Alt+V dashboard · F10 quit".to_string()
+            } else {
+                "1-0 views · Tab next · Alt+1..0 jump · Alt+H home · Alt+V terminal · F2 palette · F10 quit".to_string()
+            }
+        } else if self.show_palette {
             "Palette: type a shell command or :action · Enter runs · Esc closes".to_string()
         } else if let Some(editor) = &self.editor {
             format!(
@@ -868,6 +937,11 @@ impl App {
                 self.block_selected = 0;
                 self.block_scroll = 0;
                 self.refresh_persisted_blocks();
+                if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+                    if let Some(session) = tab.sessions.get_mut(tab.focus) {
+                        session.clear_unread();
+                    }
+                }
                 true
             }
             "home.open" | "dashboard.open" => {
@@ -1927,6 +2001,42 @@ fn open_url(target: &str) -> std::io::Result<()> {
             format!("{program} exited with {status}"),
         ))
     }
+}
+
+fn desktop_notify(title: &str, body: &str) {
+    let title = sanitize_notification(title);
+    let body = sanitize_notification(body);
+    #[cfg(target_os = "linux")]
+    {
+        let _ = std::process::Command::new("notify-send")
+            .arg("--app-name=Zentrion")
+            .arg(&title)
+            .arg(&body)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let script = format!(
+            "display notification \"{}\" with title \"{}\"",
+            body.replace('"', "'"),
+            title.replace('"', "'")
+        );
+        let _ = std::process::Command::new("osascript")
+            .args(["-e", &script])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        let _ = (title, body);
+    }
+}
+
+fn sanitize_notification(text: &str) -> String {
+    text.chars().filter(|c| !c.is_control()).take(200).collect()
 }
 
 fn copy_to_clipboard(text: &str) -> std::io::Result<()> {

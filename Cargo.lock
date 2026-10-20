@@ -4543,6 +4543,7 @@ dependencies = [
  "z-policy",
  "z-projects",
  "z-registry",
+ "z-remote",
  "z-security",
  "z-session",
  "z-tool",
@@ -4714,6 +4715,19 @@ dependencies = [
  "z-native",
  "z-tool",
  "z-version",
+]
+
+[[package]]
+name = "z-remote"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "libc",
+ "serde",
+ "serde_json",
+ "uuid",
+ "z-core",
 ]
 
 [[package]]

@@ -66,6 +66,8 @@ pub struct CreateParams {
     pub env: Vec<(String, String)>,
     pub integration: Option<ShellIntegration>,
     pub login: bool,
+    /// Run an argv directly instead of resolving a shell (SSH/remote domains).
+    pub command: Option<Vec<String>>,
 }
 
 enum WriterMessage {
@@ -139,12 +141,19 @@ impl SessionManager {
             .profile
             .as_deref()
             .and_then(|name| self.options.config.profiles.get(name));
-        let shell = params
+        let requested_shell = params
             .shell
             .clone()
             .or_else(|| profile.and_then(|profile| profile.shell.clone()))
             .unwrap_or_else(|| self.options.config.shell.default.clone());
-        let shell = resolve_shell(&shell)?;
+        let shell = if let Some(command) = &params.command {
+            command
+                .first()
+                .cloned()
+                .ok_or_else(|| SessionError::Pty("command is empty".into()))?
+        } else {
+            resolve_shell(&requested_shell)?
+        };
         let cwd = params
             .cwd
             .clone()
@@ -194,6 +203,7 @@ impl SessionManager {
             command_file: command_file.clone(),
             login: params.login,
             heuristic_blocks: false,
+            command: params.command.clone(),
         };
         let tx = self.block_tx.clone();
         let sink: Option<BlockSink> = tx.map(|tx| {
@@ -450,6 +460,35 @@ mod tests {
         let contents = manager.snapshot(&info.id).unwrap().contents;
         assert!(contents.contains("zentrion-session-test"));
         manager.close(&info.id, true).unwrap();
+        manager.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn direct_command_session_runs_without_a_shell() {
+        let (manager, dir) = manager("direct-command");
+        let info = manager
+            .create(CreateParams {
+                command: Some(vec![
+                    "/bin/sh".into(),
+                    "-c".into(),
+                    "echo direct-command; sleep 0.1".into(),
+                ]),
+                cwd: Some(dir.clone()),
+                integration: Some(ShellIntegration::Off),
+                ..Default::default()
+            })
+            .unwrap();
+        assert!(!info.integration);
+        assert_eq!(info.shell_kind, "program");
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let snapshot = manager.snapshot(&info.id).unwrap();
+        assert!(
+            snapshot.contents.contains("direct-command"),
+            "{}",
+            snapshot.contents
+        );
         manager.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
     }

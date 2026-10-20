@@ -1003,3 +1003,74 @@ base_url = "http://127.0.0.1:{port}/v1"
     assert_eq!(value["requests"], 1, "{value}");
     assert_eq!(value["budget_usd"], 0.0);
 }
+
+#[test]
+fn remote_exec_and_upload_use_openssh_with_strict_host_keys() {
+    if !cfg!(unix) {
+        return;
+    }
+    let env = Env::new("remote");
+    let bin = env.dir.join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    for name in ["ssh", "scp"] {
+        let path = bin.join(name);
+        std::fs::write(&path, format!("#!/bin/sh\necho \"{name}:$@\"\n")).unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    let path_env = format!(
+        "{}:{}",
+        bin.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let root = env.project();
+    let local = root.join("upload.txt");
+    std::fs::write(&local, "payload").unwrap();
+
+    let mut cmd = env.cmd_in(&root);
+    cmd.env("PATH", &path_env);
+    let out = cmd
+        .args(["remote", "exec", "deploy@example.com", "uname", "-a"])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("StrictHostKeyChecking=yes"), "{stdout}");
+    assert!(stdout.contains("deploy@example.com"), "{stdout}");
+    assert!(stdout.contains("uname -a"), "{stdout}");
+
+    let mut cmd = env.cmd_in(&root);
+    cmd.env("PATH", &path_env);
+    let out = cmd
+        .args([
+            "remote",
+            "upload",
+            "example.com",
+            local.to_str().unwrap(),
+            "/tmp/upload.txt",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("scp:"), "{stdout}");
+    assert!(stdout.contains("example.com:/tmp/upload.txt"), "{stdout}");
+    assert!(stdout.contains("StrictHostKeyChecking=yes"), "{stdout}");
+
+    let mut cmd = env.cmd_in(&root);
+    cmd.env("PATH", &path_env);
+    let out = cmd
+        .args(["remote", "exec", "example.com", "true", "--port", "2222"])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    assert!(String::from_utf8_lossy(&out.stdout).contains("-p 2222"));
+}

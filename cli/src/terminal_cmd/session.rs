@@ -142,7 +142,7 @@ pub fn session(args: &[String], json_out: bool) -> ZenResult<()> {
             }
         }
         "attach" => attach(parsed.rest(), parsed.value("--since").and_then(|v| v.parse().ok()), json_out),
-        "replay" => replay(parsed.rest(), json_out),
+        "replay" => replay(parsed.rest(), json_out, parsed.flag("--plain")),
         "blocks" => {
             let id = parsed
                 .rest()
@@ -269,8 +269,17 @@ fn attach(rest: &[String], since: Option<u64>, json_out: bool) -> ZenResult<()> 
         .ok_or_else(|| fail("usage: z session attach <id> [--since N]"))?;
     let client =
         z_session::connect_or_spawn().map_err(|e| map_err("cannot reach session daemon", e))?;
+    attach_to(&client, id, since.unwrap_or(0), json_out)
+}
+
+pub(crate) fn attach_to(
+    client: &z_session::SessionClient,
+    id: &str,
+    since: u64,
+    json_out: bool,
+) -> ZenResult<()> {
     let (attach, mut events) = client
-        .attach(id, since.unwrap_or(0))
+        .attach(id, since)
         .map_err(|e| map_err("cannot attach", e))?;
     if json_out {
         return print_json(&attach.snapshot);
@@ -342,7 +351,7 @@ fn attach(rest: &[String], since: Option<u64>, json_out: bool) -> ZenResult<()> 
     Ok(())
 }
 
-fn replay(rest: &[String], json_out: bool) -> ZenResult<()> {
+fn replay(rest: &[String], json_out: bool, plain: bool) -> ZenResult<()> {
     let id = rest
         .first()
         .ok_or_else(|| fail("usage: z session replay <id>"))?;
@@ -353,6 +362,10 @@ fn replay(rest: &[String], json_out: bool) -> ZenResult<()> {
         .map_err(|e| map_err("cannot attach", e))?;
     if json_out {
         print_json(&attach.snapshot)
+    } else if plain {
+        // Screen-reader / script friendly: no ANSI, just the visible screen.
+        println!("{}", attach.snapshot["contents"].as_str().unwrap_or(""));
+        Ok(())
     } else {
         let mut stdout = std::io::stdout();
         write!(
