@@ -1,0 +1,49 @@
+apiVersion: zentrion.policy/v1
+kind: Policy
+metadata:
+  name: example-agent-policy
+  description: Human and agent permissions for one project
+
+filesystem:
+  read:
+    - "./**"
+  write:
+    - "./src/**"
+    - "./tests/**"
+  delete: []
+
+network:
+  allow:
+    - "crates.io"
+  listen: []
+
+secrets:
+  read: false
+  write: false
+
+system:
+  admin: false
+
+process:
+  spawn:
+    - cargo
+    - git
+
+tools:
+  allow:
+    - z-sysinfo
+  install: true
+
+agents:
+  profiles:
+    agent-readonly:
+      tools: []
+      network: []
+      write: []
+      require_approval: [agent.tool.call, agent.exec]
+
+    agent-dev:
+      tools: ["z", "cargo", "git"]
+      network: ["crates.io"]
+      write: ["./src/**", "./tests/**"]
+      require_approval: [agent.exec, agent.net]

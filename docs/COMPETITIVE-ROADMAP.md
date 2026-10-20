@@ -8,6 +8,8 @@ agent or model, on any machine, while proving exactly what happened — and then
 expand into the table-stakes UX that Warp, Ghostty, WezTerm, iTerm2, Kitty,
 Windows Terminal, Wave and Zellij have already trained users to expect.
 
+The detailed engineering design for these features is in the [Implementation blueprint](IMPLEMENTATION-BLUEPRINT.md).
+
 This document is deliberately blunt about gaps. Do not use the market-share
 numbers or competitor summaries below in external marketing without re-checking
 them; some come from vendor blogs and survey summaries.

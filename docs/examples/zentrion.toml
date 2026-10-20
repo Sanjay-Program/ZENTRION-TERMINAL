@@ -1,0 +1,57 @@
+# Target config schema — see docs/IMPLEMENTATION-BLUEPRINT.md
+[ui]
+theme = "dracula"
+font_family = "JetBrains Mono"
+font_size = 13.0
+opacity = 0.98
+cursor_style = "bar"
+scrollback_lines = 100_000
+gpu = true
+
+[shell]
+default = "/bin/bash"
+integration = "auto"       # auto | off | bash | zsh | fish | pwsh | nushell
+
+[input]
+composer = "overlay"       # off | overlay | full
+completions = ["history", "shell", "files", "git", "packages", "ai"]
+danger_confirm = true
+
+[blocks]
+persist = true
+retention_days = 30
+share_redaction = true
+
+[agents]
+default_agent = "claude-code"
+max_parallel = 4
+auto_approve_read_only = true
+default_profile = "agent-readonly"
+notify_on = ["waiting_approval", "completed", "failed"]
+
+[models]
+default = "local/qwen2.5-coder"
+fallback = ["openai/gpt-4o-mini"]
+budget_usd_per_day = 5.00
+
+[remote]
+ssh_backend = "native"
+verify_host_keys = true
+
+[telemetry]
+enabled = false
+
+[keybindings]
+"f2" = "palette.open"
+"f3" = "editor.toggle"
+"f4" = "copilot.toggle"
+"f5" = "sysmon.toggle"
+"f6" = "chat.toggle"
+"f7" = "tab.new"
+"f8" = "pane.split"
+"f9" = "pane.close"
+"f10" = "app.quit"
+"f11" = "search.open"
+"f12" = "copy_mode.toggle"
+"alt+1" = "tab.select:1"
+"ctrl+space" = "leader"

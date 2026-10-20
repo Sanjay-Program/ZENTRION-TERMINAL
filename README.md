@@ -240,6 +240,7 @@ z upgrade check
 - [Security model](docs/SECURITY_MODEL.md)
 - [Tools](docs/tools/README.md)
 - [Competitive roadmap](docs/COMPETITIVE-ROADMAP.md) — what to build next to lead the market
+- [Implementation blueprint](docs/IMPLEMENTATION-BLUEPRINT.md) — deep architecture, protocols, schemas and delivery plan
 - [Documentation index](docs/DOCUMENTATION_INDEX.md)
 
 ## 🧪 Build & test

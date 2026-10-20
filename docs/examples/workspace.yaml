@@ -1,0 +1,23 @@
+version: 1
+name: "payments-api"
+root: "/work/payments"
+restore: layout+cwd        # never | layout | layout+cwd | full
+tabs:
+  - title: "api"
+    layout:
+      direction: horizontal
+      panes:
+        - cwd: "/work/payments"
+          command: "cargo watch -x run"
+          profile: "developer"
+        - cwd: "/work/payments"
+          split: vertical
+          panes:
+            - command: "cargo test"
+            - command: "git status"
+  - title: "agents"
+    layout:
+      direction: vertical
+      panes:
+        - agent: "claude-code"
+        - agent: "codex"

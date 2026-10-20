@@ -1,0 +1,22 @@
+name: release-check
+params:
+  version:
+    type: string
+    required: true
+
+steps:
+  - id: test
+    run: "cargo test --workspace"
+    timeout: 20m
+
+  - id: scan
+    run: "z security scan ."
+    timeout: 5m
+
+  - id: approval
+    approve: "Ship ${version}?"
+
+  - id: publish
+    run: "cargo publish"
+    when: "steps.approval.approved"
+    timeout: 10m

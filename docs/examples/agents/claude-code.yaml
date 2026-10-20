@@ -1,0 +1,30 @@
+id: claude-code
+name: Claude Code
+command: claude
+args: []
+detect:
+  binaries: ["claude"]
+  env: ["ANTHROPIC_API_KEY"]
+
+events:
+  mode: hooks
+  hooks:
+    stop: "Session complete"
+    notification: "Needs attention"
+  status_patterns:
+    - regex: 'Do you want to proceed\?'
+      state: waiting_approval
+    - regex: 'Running tests'
+      state: running
+
+resume:
+  command: ["claude", "--continue"]
+
+permissions:
+  default_profile: agent-readonly
+  allow_write: false
+  allow_network: false
+
+ui:
+  badge: "CC"
+  color: "#d97757"

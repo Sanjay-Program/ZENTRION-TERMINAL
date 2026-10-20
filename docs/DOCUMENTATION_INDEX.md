@@ -9,6 +9,7 @@
 ## Strategy
 
 - [Competitive roadmap](COMPETITIVE-ROADMAP.md) — market research, priorities and 12-week plan
+- [Implementation blueprint](IMPLEMENTATION-BLUEPRINT.md) — architecture, protocols, schemas, UX flows and milestones
 
 ## Runtime
 
