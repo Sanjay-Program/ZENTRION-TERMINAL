@@ -1,0 +1,5 @@
+apiVersion: zentrion.environment/v1
+kind: Environment
+profiles:
+  dev: {}
+  ci: {}

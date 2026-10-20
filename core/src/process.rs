@@ -34,7 +34,7 @@ impl ProcessRequest {
             env: HashMap::new(),
             env_remove: Vec::new(),
             stdin: None,
-            timeout: Some(Duration::from_secs(60)),
+            timeout: Some(Duration::from_secs(600)),
         }
     }
 
@@ -96,6 +96,45 @@ impl ProcessRunner {
             cmd.current_dir(d);
         }
 
+        // Defense in depth for every brokered child:
+        // - no new privileges (blocks setuid escalation)
+        // - non-dumpable (blocks ptrace/core dumps of our children)
+        // - no core dumps, bounded file descriptors and CPU time
+        // - umask 077 so created files are private by default
+        // - killed if the broker dies (PDEATHSIG)
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            let cpu_seconds = req
+                .timeout
+                .unwrap_or(Duration::from_secs(600))
+                .as_secs()
+                .saturating_add(5)
+                .max(1);
+            unsafe {
+                cmd.pre_exec(move || {
+                    if libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0);
+                    #[cfg(target_os = "linux")]
+                    libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL, 0, 0, 0);
+                    let core = libc::rlimit {
+                        rlim_cur: 0,
+                        rlim_max: 0,
+                    };
+                    libc::setrlimit(libc::RLIMIT_CORE, &core);
+                    let cpu = libc::rlimit {
+                        rlim_cur: cpu_seconds as libc::rlim_t,
+                        rlim_max: cpu_seconds.saturating_add(5) as libc::rlim_t,
+                    };
+                    libc::setrlimit(libc::RLIMIT_CPU, &cpu);
+                    libc::umask(0o077);
+                    Ok(())
+                });
+            }
+        }
+
         // Secret hygiene: strip sensitive vars first, then apply additions.
         for var in ALWAYS_REMOVE {
             cmd.env_remove(var);
@@ -116,11 +155,30 @@ impl ProcessRunner {
             .with_remediation("Check that the program exists and is executable.")
         })?;
 
-        let timeout = req.timeout.unwrap_or(Duration::from_secs(60));
+        let timeout = req.timeout.unwrap_or(Duration::from_secs(600));
 
-        // Take stdout/stderr handles so we can read after exit.
+        // Drain stdout/stderr concurrently. Waiting for exit without reading
+        // the pipes deadlocks as soon as the child fills the OS pipe buffer.
+        use std::io::Read;
         let mut stdout_pipe = child.stdout.take();
         let mut stderr_pipe = child.stderr.take();
+
+        let (stdout_tx, stdout_rx) = std::sync::mpsc::channel();
+        let (stderr_tx, stderr_rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            if let Some(pipe) = stdout_pipe.as_mut() {
+                let _ = pipe.read_to_end(&mut bytes);
+            }
+            let _ = stdout_tx.send(String::from_utf8_lossy(&bytes).into_owned());
+        });
+        std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            if let Some(pipe) = stderr_pipe.as_mut() {
+                let _ = pipe.read_to_end(&mut bytes);
+            }
+            let _ = stderr_tx.send(String::from_utf8_lossy(&bytes).into_owned());
+        });
 
         // Poll for exit within timeout (std has no wait_timeout).
         let poll = Duration::from_millis(25);
@@ -134,6 +192,7 @@ impl ProcessRunner {
                 Ok(None) => std::thread::sleep(poll),
                 Err(e) => {
                     let _ = child.kill();
+                    let _ = child.wait();
                     return Err(ZenError::new(Area::Pr, 5012, format!("process error: {e}")));
                 }
             }
@@ -148,15 +207,11 @@ impl ProcessRunner {
             }
         };
 
-        use std::io::Read;
-        let mut out = String::new();
-        if let Some(p) = &mut stdout_pipe {
-            let _ = p.read_to_string(&mut out);
-        }
-        let mut err_out = String::new();
-        if let Some(p) = &mut stderr_pipe {
-            let _ = p.read_to_string(&mut err_out);
-        }
+        // A daemonizing grandchild can keep the pipe open after the direct
+        // child exits. Never block forever waiting for EOF.
+        let grace = Duration::from_secs(5);
+        let out = stdout_rx.recv_timeout(grace).unwrap_or_default();
+        let err_out = stderr_rx.recv_timeout(grace).unwrap_or_default();
 
         Ok(ProcessResult {
             exit_code,
@@ -178,6 +233,7 @@ impl ProcessResult {
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
     #[test]
     fn simple_command() {
         let r = ProcessRunner::run(&ProcessRequest::new("echo").arg("hello")).unwrap();
@@ -185,6 +241,7 @@ mod tests {
         assert_eq!(r.stdout.trim(), "hello");
     }
 
+    #[cfg(unix)]
     #[test]
     fn args_are_verbatim_no_shell_interpretation() {
         // If this went through a shell, `; echo pwned` would execute.
@@ -192,12 +249,14 @@ mod tests {
         assert_eq!(r.stdout.trim(), "hello; echo pwned");
     }
 
+    #[cfg(unix)]
     #[test]
     fn metacharacters_are_literal() {
         let r = ProcessRunner::run(&ProcessRequest::new("echo").arg("$HOME && rm -rf /")).unwrap();
         assert_eq!(r.stdout.trim(), "$HOME && rm -rf /");
     }
 
+    #[cfg(unix)]
     #[test]
     fn quotes_newlines_unicode_preserved() {
         let r = ProcessRunner::run(
@@ -208,6 +267,19 @@ mod tests {
         assert!(r.stdout.contains("second line — ünïcode 日本語"));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn large_output_does_not_deadlock() {
+        // 1 MB is far beyond a typical 64 KiB pipe buffer.
+        let r = ProcessRunner::run(&ProcessRequest::new("sh").args([
+            "-c",
+            "i=0; while [ $i -lt 20000 ]; do echo 0123456789012345678901234567890123456789; i=$((i+1)); done",
+        ]))
+        .unwrap();
+        assert!(r.success());
+        assert!(r.stdout.len() > 500_000, "got {} bytes", r.stdout.len());
+    }
+
     #[test]
     fn missing_program_errors() {
         assert!(
@@ -215,6 +287,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn timeout_kills_process() {
         let r = ProcessRunner::run(
@@ -227,14 +300,14 @@ mod tests {
         assert!(!r.success());
     }
 
+    #[cfg(unix)]
     #[test]
     fn exit_code_propagated() {
-        if cfg!(not(target_os = "windows")) {
-            let r = ProcessRunner::run(&ProcessRequest::new("false")).unwrap();
-            assert_eq!(r.exit_code, 1);
-        }
+        let r = ProcessRunner::run(&ProcessRequest::new("false")).unwrap();
+        assert_eq!(r.exit_code, 1);
     }
 
+    #[cfg(unix)]
     #[test]
     fn secret_env_stripped() {
         let mut req = ProcessRequest::new("sh")
@@ -245,6 +318,7 @@ mod tests {
         assert!(r.stdout.contains("absent"));
     }
 
+    #[cfg(unix)]
     #[test]
     fn explicit_env_applied() {
         let mut env = HashMap::new();
@@ -258,6 +332,7 @@ mod tests {
         assert_eq!(r.stdout.trim(), "zen-value");
     }
 
+    #[cfg(unix)]
     #[test]
     fn missing_working_dir_fails() {
         let req = ProcessRequest::new("echo").working_dir("/nonexistent-dir-xyz/..");

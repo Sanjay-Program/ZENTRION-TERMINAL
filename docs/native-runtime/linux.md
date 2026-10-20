@@ -18,7 +18,7 @@ this environment.
 | Process listing | Enumerates `/proc`, filters numeric entries | verified |
 | System memory | `MemTotal` / `MemAvailable` from `/proc/meminfo` | verified |
 | DNS A/AAAA | OS resolver via `getaddrinfo` | verified |
-| Sandbox level | `Maximum` (landlock + seccomp + cgroups + namespaces available) | reported honestly |
+| Sandbox level | `resource-limits` (no_new_privs + rlimits + non-dumpable + umask + PDEATHSIG) | implemented and reported honestly |
 | Process execution | `std::process::Command`, direct, no shell | verified |
 
 ## ABI awareness
@@ -38,13 +38,19 @@ $ z run echo 'a; echo PWNED'
 a; echo PWNED          # one literal line; nothing else executed
 ```
 
-## Sandbox level: what "maximum" means
+## Sandbox level: what `resource-limits` means
 
-`SandboxLevel::Maximum` reports that the *platform offers* Landlock (filesystem),
-seccomp (syscalls), cgroup v2 (resources) and namespaces (network/mount).
-It is a capability report. **The sandbox is not wired into the execution path
-in Phase 2** — nothing is confined yet. Policy decides whether an action runs;
-it does not confine a process that has been permitted. See
+Every brokered child receives:
+
+- `PR_SET_NO_NEW_PRIVS` (no setuid escalation)
+- `PR_SET_DUMPABLE=0` (no ptrace/core inspection of the child)
+- `PR_SET_PDEATHSIG=SIGKILL` (child dies with the broker)
+- `RLIMIT_CORE=0` and a CPU-time limit derived from the request timeout
+- `umask(077)` so created files are private by default
+
+There is **no** Landlock, seccomp, cgroup or namespace confinement yet. Policy
+decides whether an action runs; it does not confine a permitted process. The
+capability report therefore says `resource-limits`, not `maximum`. See
 [sandbox.md](sandbox.md).
 
 ## Distribution notes

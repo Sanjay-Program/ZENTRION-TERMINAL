@@ -16,7 +16,7 @@ sha256_file() {
 	fi
 }
 
-cargo build --workspace --release
+cargo build -p z-cli --release
 OS="$(uname -s | tr 'A-Z' 'a-z')"
 case "$OS" in
 	mingw*|msys*|cygwin*) OS="windows" ;;

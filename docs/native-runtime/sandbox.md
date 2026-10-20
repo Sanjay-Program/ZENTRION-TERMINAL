@@ -2,12 +2,13 @@
 
 ## Read this first
 
-**Phase 2 does not confine processes.** The tool manager decides *whether*
-something may run; it does not yet confine *how* it runs. `z platform` reports
-the isolation the platform *offers*, not isolation that is currently applied.
+**The current build hardens processes but does not filesystem- or syscall-
+confine them.** Every brokered child gets `no_new_privs`, non-dumpable,
+`PDEATHSIG`, no core dumps, a CPU-time limit and `umask 077`. The tool manager
+decides *whether* something may run; Landlock/seccomp-style confinement of
+*how* it runs is not implemented. `z platform` reports `resource-limits`.
 
-Do not run untrusted binaries with Phase 2 and assume they are contained. They
-are not.
+Do not run untrusted binaries and assume they are contained. They are not.
 
 ## Levels
 
@@ -27,12 +28,19 @@ a requirement against what is available.
 
 | Platform | Reported level | Basis | What is missing |
 |---|---|---|---|
-| Linux | `maximum` (5) | Landlock + seccomp + cgroup v2 + namespaces | nothing platform-side |
-| macOS | `filesystem+network` (3) | Seatbelt profiles + rlimits | no syscall filter |
-| Windows | `resource-limits` (1) | Job Objects | no filesystem or syscall confinement for arbitrary children |
+| Linux | `resource-limits` (1) | no_new_privs, non-dumpable, PDEATHSIG, rlimits, umask | Landlock, seccomp, cgroups, namespaces |
+| macOS | `resource-limits` (1) | POSIX rlimits and process hygiene | Seatbelt profiles, syscall filtering |
+| Windows | `none` (0) | no Job Object wiring yet | all confinement |
 
-This is a capability probe, asserted by a test against the compile target so
-the report cannot drift from reality.
+This is a capability report asserted by a test against the compile target so it
+cannot drift from reality.
+
+## Why not claim more
+
+Landlock, seccomp and network namespaces are real Linux primitives, but wiring
+them into a general-purpose terminal broker without breaking compilers, package
+managers and interactive programs is a substantial project. Reporting a level
+that is not applied would be worse than reporting the truth.
 
 ## Why Windows is lower
 
@@ -42,7 +50,7 @@ Zentrion reports level 1. Options for raising it later (restricted tokens,
 AppContainer, job-object restrictions) are real but partial, and would be
 reported as their true level, not as "strong".
 
-## What Phase 3 will add
+## What a stronger sandbox would add
 
 1. A `SandboxProvider` trait with `create / configure / execute / terminate /
    destroy`.
@@ -53,8 +61,7 @@ reported as their true level, not as "strong".
 4. `WindowsSandboxProvider`: Job Object limits plus a restricted token where
    it helps, reporting the level it actually achieves.
 5. Broker integration: a request whose risk requires level *N* is refused when
-   the platform cannot reach *N*, unless the user explicitly opts out. That is
-   the Phase 0 fail-closed rule, and it is not yet wired up.
+   the platform cannot reach *N*, unless the user explicitly opts out.
 
 ## Relationship to policy
 
@@ -65,5 +72,6 @@ Policy and sandbox are complementary and neither replaces the other:
 - **Sandbox** answers "what can this process actually reach once running?" and
   is enforced by the kernel.
 
-A permitted process is currently unconfined. That is the principal security
-limitation of Phase 2 and is stated as such in the security review.
+A permitted process is currently unconfined at the filesystem/network level.
+That is the principal security limitation and is stated as such in the security
+review.

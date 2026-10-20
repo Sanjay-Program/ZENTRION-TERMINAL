@@ -169,8 +169,14 @@ pub fn status(json: bool, project: Option<PathBuf>) -> ZenResult<()> {
     let policy = effective_policy(&rt);
     let policy_desc = match &policy {
         Ok(p) => format!(
-            "read={:?} write={:?} net={:?} secrets={} admin={}",
-            p.filesystem.read, p.filesystem.write, p.network.allow, p.secrets.read, p.system.admin
+            "read={:?} write={:?} net={:?} process={:?} tools={:?} secrets={} admin={}",
+            p.filesystem.read,
+            p.filesystem.write,
+            p.network.allow,
+            p.process.spawn,
+            p.tools.allow,
+            p.secrets.read,
+            p.system.admin
         ),
         Err(e) => format!("INVALID ({e})"),
     };
@@ -599,11 +605,13 @@ pub fn config(args: &[String], json: bool) -> ZenResult<()> {
                             serde_json::to_string_pretty(&json!({
                                 "log_level": cfg.log_level,
                                 "telemetry_enabled": cfg.telemetry_enabled,
+                                "theme": cfg.theme,
                             }))?
                         );
                     } else {
                         println!("log_level          = {}", cfg.log_level);
                         println!("telemetry_enabled  = {}", cfg.telemetry_enabled);
+                        println!("theme              = {}", cfg.theme);
                     }
                 }
                 Some("runtime") | Some("log_level") => {
@@ -618,6 +626,13 @@ pub fn config(args: &[String], json: bool) -> ZenResult<()> {
                 }
                 Some("telemetry_enabled") | Some("telemetry") => {
                     println!("{}", cfg.telemetry_enabled)
+                }
+                Some("theme") => {
+                    if json {
+                        println!("{}", serde_json::to_string(&json!({"theme": cfg.theme}))?);
+                    } else {
+                        println!("{}", cfg.theme);
+                    }
                 }
                 Some(other) => {
                     return Err(ZenError::new(
@@ -639,6 +654,21 @@ pub fn config(args: &[String], json: bool) -> ZenResult<()> {
                 .ok_or_else(|| ZenError::new(Area::Cfg, 23, "usage: z config set <key> <value>"))?;
 
             // Only known, non-secret keys are settable.
+            if key == "theme" {
+                if tui::Theme::named(value).is_none() {
+                    return Err(
+                        ZenError::new(Area::Cfg, 31, format!("unknown theme '{value}'"))
+                            .with_remediation(format!(
+                                "Available themes: {}",
+                                tui::Theme::available().join(", ")
+                            )),
+                    );
+                }
+                tui::Theme::persist(value)
+                    .map_err(|e| ZenError::new(Area::Cfg, 32, format!("cannot save theme: {e}")))?;
+                println!("theme = {value}");
+                return Ok(());
+            }
             if key == "telemetry_enabled" || key == "telemetry" {
                 let b = value == "true" || value == "1";
                 write_config_value("telemetry_enabled", &b.to_string())?;
@@ -663,7 +693,7 @@ pub fn config(args: &[String], json: bool) -> ZenResult<()> {
                 25,
                 format!("unknown or non-settable key '{key}'"),
             )
-            .with_remediation("Settable keys: log_level, telemetry_enabled"))
+            .with_remediation("Settable keys: log_level, telemetry_enabled, theme"))
         }
         Some("set-secret") => {
             let key = args.get(1).ok_or_else(|| {
@@ -682,6 +712,39 @@ pub fn config(args: &[String], json: bool) -> ZenResult<()> {
             );
             Ok(())
         }
+        Some("list-secrets") => {
+            let names = z_identity::vault::list_secret_names()
+                .map_err(|e| ZenError::new(Area::Cfg, 33, format!("cannot read vault: {e}")))?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(
+                        &json!({"secrets": names, "values_displayed": false})
+                    )?
+                );
+            } else if names.is_empty() {
+                println!("No secrets stored.");
+            } else {
+                println!("Stored secret names (values are never displayed):");
+                for name in names {
+                    println!("  {name}");
+                }
+            }
+            Ok(())
+        }
+        Some("delete-secret") => {
+            let key = args.get(1).ok_or_else(|| {
+                ZenError::new(Area::Cfg, 34, "usage: z config delete-secret <key>")
+            })?;
+            let removed = z_identity::vault::delete_secret(key)
+                .map_err(|e| ZenError::new(Area::Cfg, 35, format!("cannot update vault: {e}")))?;
+            if removed {
+                println!("Deleted secret '{key}'.");
+            } else {
+                println!("No secret named '{key}'.");
+            }
+            Ok(())
+        }
         Some("path") => {
             println!(
                 "{}",
@@ -696,7 +759,7 @@ pub fn config(args: &[String], json: bool) -> ZenResult<()> {
             26,
             format!("unknown config subcommand '{other}'"),
         )
-        .with_remediation("Usage: z config [get|set|path]")),
+        .with_remediation("Usage: z config [get|set|set-secret|list-secrets|delete-secret|path]")),
     }
 }
 
@@ -715,6 +778,7 @@ fn write_config_value(key: &str, value: &str) -> ZenResult<()> {
     match key {
         "log_level" => cfg.log_level = value.to_string(),
         "telemetry_enabled" => cfg.telemetry_enabled = value == "true",
+        "theme" => cfg.theme = value.to_string(),
         _ => {}
     }
     let text = serde_yaml::to_string(&cfg)
@@ -1079,6 +1143,110 @@ pub fn audit(args: &[String], json: bool) -> ZenResult<()> {
 /// Phase 1 safety boundary: the action is `process.spawn`, and the resource
 /// is the program name. A project policy must explicitly allow the program
 /// (default policy allows nothing). No shell is ever invoked.
+/// Bundled native tools are not free: they are gated on the project policy's
+/// tool allowlist and, for network-capable tools, on `network.allow`.
+fn authorize_bundled(
+    policy: &z_policy::Policy,
+    program: &str,
+    args: &[String],
+    actor: &z_identity::Actor,
+    platform: &str,
+) -> ZenResult<()> {
+    let audit_path = audit_path()?;
+    let mut audit = z_audit::AuditLog::open(&audit_path)?;
+    let request = z_policy::PolicyRequest {
+        actor: actor.id.clone(),
+        action: "tool.execute".into(),
+        resource: format!("tool:{program}"),
+    };
+    let decision = z_policy::evaluate(policy, &request);
+    let allowed = matches!(decision.decision, z_policy::Decision::Allow);
+    audit.append(
+        &actor.id,
+        actor.actor_type.as_str(),
+        "tool.execute",
+        program,
+        None,
+        if allowed { "allow" } else { "deny" },
+        if allowed { "allowed" } else { "blocked" },
+        "medium",
+        platform,
+    )?;
+    if !allowed {
+        return Err(ZenError::new(
+            Area::Pol,
+            53,
+            format!("bundled tool `{program}` is not in the project tool allowlist"),
+        )
+        .with_remediation(format!(
+            "Add `{program}` under tools.allow in .zentrion/policy.yaml, or use `z bundle plan` to install a registry tool."
+        )));
+    }
+
+    let target = match program {
+        "z-curl" => args.first().and_then(|url| url_host(url)),
+        "z-ping" => args.first().and_then(|addr| addr_host(addr)),
+        _ => None,
+    };
+    if let Some(target) = target {
+        let net_request = z_policy::PolicyRequest {
+            actor: actor.id.clone(),
+            action: "network.connect".into(),
+            resource: target.clone(),
+        };
+        let net_decision = z_policy::evaluate(policy, &net_request);
+        let net_allowed = matches!(net_decision.decision, z_policy::Decision::Allow);
+        audit.append(
+            &actor.id,
+            actor.actor_type.as_str(),
+            "network.connect",
+            &target,
+            None,
+            if net_allowed { "allow" } else { "deny" },
+            if net_allowed { "allowed" } else { "blocked" },
+            "medium",
+            platform,
+        )?;
+        if !net_allowed {
+            return Err(ZenError::new(
+                Area::Pol,
+                54,
+                format!("network access to `{target}` is not allowed for bundled tool `{program}`"),
+            )
+            .with_remediation("Add the host to network.allow in .zentrion/policy.yaml."));
+        }
+    }
+    Ok(())
+}
+
+fn url_host(url: &str) -> Option<String> {
+    let rest = url.split_once("://").map(|(_, rest)| rest).unwrap_or(url);
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or(rest);
+    let authority = authority
+        .rsplit_once('@')
+        .map(|(_, host)| host)
+        .unwrap_or(authority);
+    let host = authority.split(':').next().unwrap_or(authority);
+    if host.is_empty() {
+        None
+    } else {
+        Some(host.to_string())
+    }
+}
+
+fn addr_host(addr: &str) -> Option<String> {
+    if let Some((host, port)) = addr.rsplit_once(':') {
+        if port.parse::<u16>().is_ok() {
+            return Some(host.trim_matches(&['[', ']'][..]).to_string());
+        }
+    }
+    if addr.is_empty() {
+        None
+    } else {
+        Some(addr.to_string())
+    }
+}
+
 pub fn run(
     program: String,
     args: Vec<String>,
@@ -1094,11 +1262,12 @@ pub fn run(
     let audit = z_audit::AuditLog::open(&apath)?;
     let platform = format!("{}-{}", rt.host.os.as_str(), rt.host.arch.as_str());
 
+    let policy_for_bundled = policy.clone();
     let mut broker = z_exec::Broker::new(
         policy,
         audit,
         rt.project.as_ref().map(|p| p.root.clone()),
-        platform,
+        platform.clone(),
     );
 
     let req = z_exec::ExecRequest {
@@ -1113,8 +1282,11 @@ pub fn run(
 
     let registry = bundled::registry::BundledRegistry::new();
     if let Some(tool) = registry.get(&program) {
-        println!("Executing safe native bundled tool: {}", program);
-        let rt = tokio::runtime::Runtime::new().unwrap();
+        authorize_bundled(&policy_for_bundled, &program, &args, &actor, &platform)?;
+        println!("Executing allowlisted native bundled tool: {}", program);
+        let rt = tokio::runtime::Runtime::new().map_err(|e| {
+            ZenError::new(Area::Exe, 119, format!("cannot start async runtime: {e}"))
+        })?;
         if let Err(e) = rt.block_on(tool.execute(&args)) {
             return Err(z_core::error::ZenError::new(
                 z_core::error::Area::Exe,
@@ -1205,23 +1377,4 @@ fn print_denied(program: &str, result: &z_exec::ExecResult, args: &[String]) {
     if let Some(id) = &result.audit_id {
         println!("    Audit:               {id} recorded");
     }
-}
-
-/// `z lockdown` — minimal Phase 1 implementation: reports state only.
-/// Full agent-kill/network-block is Phase 3 (see 28-EMERGENCY-CONTROL).
-pub fn lockdown(json: bool) -> ZenResult<()> {
-    if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&json!({
-                "lockdown": "not_implemented_in_phase_1",
-                "note": "no agents or daemons exist in Phase 1; nothing to terminate",
-            }))?
-        );
-    } else {
-        println!("Lockdown is not implemented in Phase 1.");
-        println!("  Phase 1 has no agents, daemons, or background sessions to terminate.");
-        println!("  This command will control agent termination in Phase 3.");
-    }
-    Ok(())
 }

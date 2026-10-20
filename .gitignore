@@ -89,3 +89,9 @@ venv/
 # Custom local config (not for sharing)
 .zentrion-dev/
 local.toml
+
+# Local development caches (never commit)
+/.cargo-home/
+/.pydeps/
+/.zt-test/
+/.kilo/

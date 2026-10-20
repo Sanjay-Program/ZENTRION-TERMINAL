@@ -449,7 +449,10 @@ pub fn info(
     }
     let v = match version {
         Some(v) => v,
-        None => versions.last().cloned().unwrap(),
+        None => versions
+            .last()
+            .cloned()
+            .ok_or_else(|| ZenError::new(Area::Reg, 226, format!("no versions for {tool}")))?,
     };
     let entry = reg
         .entry(tool, &v)?
@@ -553,24 +556,12 @@ pub fn install_tool(
     // Resolve version.
     let versions = reg.versions(name)?;
     if versions.is_empty() {
-        println!("{} not found in the curated Zentrion registry.", name);
-        println!("Attempting fallback to native OS package manager...");
-        let os_manager = tools::os_package::OsPackageManager::detect();
-        if matches!(os_manager, tools::os_package::OsPackageManager::Unknown) {
-            return Err(
-                ZenError::new(Area::Reg, 220, format!("no such tool: {name}, and no native OS package manager found"))
-                    .with_remediation("Try `z search <term>` or install a package manager like brew/apt/winget."),
-            );
-        }
-        match os_manager.install(name) {
-            Ok(_) => {
-                println!("Successfully installed {} via OS package manager.", name);
-                return Ok(());
-            },
-            Err(e) => {
-                return Err(ZenError::new(Area::Reg, 220, format!("failed to install {name} natively: {e}")));
-            }
-        }
+        return Err(
+            ZenError::new(Area::Reg, 220, format!("no such tool: {name}"))
+                .with_remediation(
+                    "Try `z search <term>`. To delegate explicitly to the OS package manager, run `z install <name> --os-package`.",
+                ),
+        );
     }
     let chosen = match &version {
         Some(v) => {
@@ -595,13 +586,22 @@ pub fn install_tool(
                 }
             }
         }
-        None => versions.last().cloned().unwrap(),
+        None => versions
+            .last()
+            .cloned()
+            .ok_or_else(|| ZenError::new(Area::Reg, 222, format!("no versions for {name}")))?,
     };
 
     let manifest = reg
         .manifest(name, &chosen)?
         .ok_or_else(|| ZenError::new(Area::Reg, 223, format!("{name} {chosen} has no manifest")))?;
-    let entry = reg.entry(name, &chosen)?.unwrap();
+    let entry = reg.entry(name, &chosen)?.ok_or_else(|| {
+        ZenError::new(
+            Area::Reg,
+            225,
+            format!("{name} {chosen} is missing from the registry index"),
+        )
+    })?;
 
     // Trust gate: UNKNOWN requires acknowledgement; REVOKED is blocked.
     if entry.trust.is_blocking() {
@@ -853,6 +853,41 @@ pub fn list_tools(
         );
     }
     let _ = installed_only;
+    Ok(())
+}
+
+/// Explicit OS package-manager delegation. Never used implicitly: installing
+/// an arbitrary name through sudo/apt/brew requires the `--os-package` flag.
+pub fn install_os_package(name: &str, json: bool) -> ZenResult<()> {
+    if name.trim().is_empty() {
+        return Err(ZenError::new(Area::Cfg, 230, "tool name cannot be empty"));
+    }
+    let manager = tools::os_package::OsPackageManager::detect();
+    if matches!(manager, tools::os_package::OsPackageManager::Unknown) {
+        return Err(ZenError::new(
+            Area::Reg,
+            231,
+            "no supported OS package manager was found (apt/brew/winget/choco)",
+        ));
+    }
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "mode": "os-package",
+                "package": name,
+                "status": "started",
+            }))?
+        );
+    }
+    manager.install(name).map_err(|e| {
+        ZenError::new(
+            Area::Reg,
+            232,
+            format!("OS package manager failed for {name}: {e:#}"),
+        )
+    })?;
+    println!("Installed {name} via the OS package manager.");
     Ok(())
 }
 

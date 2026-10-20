@@ -8,3 +8,9 @@ repository.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+sha2 = "0.10"
+hex = "0.4"
+ureq = "2.12"
+z-core = { path = "../core" }

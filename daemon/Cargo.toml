@@ -11,3 +11,9 @@ anyhow.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 tokio = { workspace = true, features = ["full"] }
+z-core = { path = "../core" }
+z-policy = { path = "../policy" }
+z-exec = { path = "../exec" }
+z-audit = { path = "../audit" }
+z-identity = { path = "../identity" }
+sysinfo = "0.30"

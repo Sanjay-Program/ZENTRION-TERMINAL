@@ -147,16 +147,21 @@ impl AgentRuntime {
         &self.profile
     }
 
+    /// Validate the configured limits once.
+    ///
+    /// There is deliberately no background loop: autonomous work is driven by
+    /// [`run_autonomous_with_profile`], which is bounded by `max_iterations`
+    /// and guardrails.
     pub async fn start(&self) -> Result<()> {
-        loop {
-            // loop for checking memory and limits
-            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-            self.check_limits()?;
-        }
+        self.check_limits()
     }
 
     fn check_limits(&self) -> Result<()> {
-        let _memory_limit = self.memory_limit;
+        if self.memory_limit == 0 {
+            return Err(anyhow::anyhow!(
+                "agent memory limit must be greater than zero"
+            ));
+        }
         Ok(())
     }
 }
@@ -172,7 +177,7 @@ pub async fn run_autonomous_with_profile(goal: &str, profile: AgentProfile) -> R
     let mut trace = AgentTrace::default();
     let mut iterations = 0;
     let max_iterations = profile.max_iterations;
-    let model = std::env::var("ZENTRION_AI_MODEL").unwrap_or_else(|_| profile.model.clone());
+    let model = z_ai::provider::default_model();
     trace.push(profile.role.clone(), "goal.received", goal);
 
     let mut messages = vec![

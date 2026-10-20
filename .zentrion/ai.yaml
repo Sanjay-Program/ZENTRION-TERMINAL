@@ -1,0 +1,5 @@
+apiVersion: zentrion.ai/v1
+kind: Ai
+provider: none
+model: ""
+send_code: false

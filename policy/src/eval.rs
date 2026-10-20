@@ -137,11 +137,16 @@ pub fn evaluate(policy: &Policy, req: &PolicyRequest) -> PolicyDecision {
             format!("system.admin={}", policy.system.admin),
         ),
         "process.spawn" => {
-            let hit = policy
-                .process
-                .spawn
-                .iter()
-                .any(|s| req.resource.starts_with(s.as_str()));
+            // Exact program match only. A policy grant for `cargo` must not
+            // silently authorize `cargo-evil` from an attacker-controlled PATH.
+            let hit = policy.process.spawn.iter().any(|allowed| {
+                req.resource == *allowed
+                    || req
+                        .resource
+                        .rsplit_once('/')
+                        .map(|(_, name)| name == allowed)
+                        .unwrap_or(false)
+            });
             (hit, format!("process.spawn {:?}", policy.process.spawn))
         }
         // Tool execution is gated on the *tool allowlist*, not the raw binary

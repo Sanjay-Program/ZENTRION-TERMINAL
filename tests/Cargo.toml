@@ -16,3 +16,7 @@ path = "cli_integration.rs"
 [[test]]
 name = "tool_integration"
 path = "tool_integration.rs"
+
+[[test]]
+name = "daemon_integration"
+path = "daemon_integration.rs"

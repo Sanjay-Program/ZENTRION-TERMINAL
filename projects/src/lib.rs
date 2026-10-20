@@ -40,6 +40,9 @@ process:
   spawn: []
 # Tools must be named here before `z run <tool>` will execute them.
 # Installing a tool never grants it permission to run.
+tools:
+  allow: []
+  install: true
 "#
     )
 }

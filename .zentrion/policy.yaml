@@ -1,0 +1,30 @@
+apiVersion: zentrion.policy/v1
+kind: Policy
+metadata:
+  name: zentrion-terminal-policy
+  description: Workspace-only policy with an explicit Rust/Git developer toolchain allowlist
+filesystem:
+  read:
+  - ./**
+  write:
+  - ./**
+  delete: []
+network:
+  allow: []
+  listen: []
+secrets:
+  read: false
+  write: false
+system:
+  admin: false
+process:
+  spawn:
+  - cargo
+  - cargo-clippy
+  - git
+  - rustc
+  - rustfmt
+tools:
+  allow:
+  - z-sysinfo
+  install: true

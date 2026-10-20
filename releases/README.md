@@ -1,48 +1,73 @@
-# ZENTRION TERMINAL - Enterprise Edition Installers
+# ZENTRION TERMINAL — Releases
 
-Welcome to the ZENTRION deployment directory. We provide hardened, automated scripts to make downloading, compiling, and configuring ZENTRION as seamless and secure as possible across all major operating systems.
+ZENTRION is distributed as source plus a locally built, checksummed archive.
+This repository does **not** contain prebuilt macOS or Windows binaries; they
+must be built on the target platform.
 
-## 🐧 Linux & 🍏 macOS (Universal Enterprise Installer)
+## 🐧 Linux (x86_64)
 
-This installer is designed to work out-of-the-box on macOS and virtually all Linux distributions (Ubuntu, Debian, Fedora, CentOS, Arch, Alpine, etc.). 
+A real archive is included in this directory:
 
-**What this script does securely:**
-1. Automatically detects your OS and installs the correct C-compiler toolchains (`build-essential`, `gcc`, `base-devel`, or `xcode-select`).
-2. Downloads the Rust compiler via the official `rustup` channel if missing.
-3. Clones the ZENTRION Enterprise core and compiles it natively for maximum speed on your architecture.
-4. Generates your local `~/.zentrion` vaults and aggressively locks the permissions to `chmod 700` to prevent cross-user access.
-5. Injects the binary into your PATH (`.bashrc` or `.zshrc`).
+- `zentrion-linux-x64.tar.gz`
+- `zentrion-linux-x64.tar.gz.sha256`
 
-**To deploy ZENTRION natively, run this single command:**
-
-```bash
-curl -sSL https://raw.githubusercontent.com/zentrion/terminal/main/releases/install.sh | bash
-```
-
-## 🪟 Windows (Native Installer)
-
-This script installs ZENTRION natively on Windows 10 and 11. 
-
-**What this script does securely:**
-1. Ensures the Rust toolchain is installed via `rustup-init.exe`.
-2. Clones the repository and compiles the executable.
-3. Generates the `~/.zentrion` vault and applies strict Windows ACL rules (Access Control Lists) ensuring only your specific user account has `FullControl`.
-
-**To deploy ZENTRION natively, open PowerShell as Administrator and run:**
-
-```powershell
-Set-ExecutionPolicy Bypass -Scope Process -Force; Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://raw.githubusercontent.com/zentrion/terminal/main/releases/install.ps1'))
-```
-
-## Post-Installation
-
-Once the installation is complete, completely close and reopen your terminal (or PowerShell window) to refresh your environment paths. Then, launch the Next-Gen UI:
+To rebuild it from a checkout:
 
 ```sh
-z-cli ui
+./scripts/package.sh
+# dist/zentrion-linux-x64.tar.gz
+# dist/zentrion-linux-x64.tar.gz.sha256
+# dist/zentrion-linux-x64.json
 ```
 
-### Essential First Steps:
-*   **Sign in to Cloud Sync:** Run `z cloud login` to authenticate your enterprise account and sync your environment.
-*   **Apply a Theme:** Run `z theme apply cyberpunk` to reskin your terminal.
-*   **Open the Editor:** Press `Alt+E` inside the UI to launch the built-in AI IDE pane.
+Install from the archive:
+
+```sh
+sha256sum -c zentrion-linux-x64.tar.gz.sha256
+tar -xzf zentrion-linux-x64.tar.gz
+install -m 755 zentrion-linux-x64/bin/z ~/.local/bin/z
+z setup
+z ui
+```
+
+## 🐧🍏 Source installer (Linux & macOS)
+
+```sh
+bash releases/install.sh
+# or, from an existing checkout:
+ZENTRION_SOURCE_DIR="$PWD" bash releases/install.sh
+```
+
+The installer installs a C toolchain (unless `ZENTRION_SKIP_DEPS=1`), installs
+Rust through rustup if needed, runs `cargo install --path cli --locked`, calls
+`z setup`, and verifies `z --version`. It installs to `~/.cargo/bin`.
+
+## 🪟 Windows (10/11)
+
+```powershell
+$env:ZENTRION_SOURCE_DIR = "$PWD"
+powershell -ExecutionPolicy Bypass -File .\releases\install.ps1
+```
+
+The script requires Rust and Git, builds `z` from source, installs it to
+`%USERPROFILE%\.cargo\bin`, and runs `z setup`. Build from source on Windows;
+there is no MSI in this repository.
+
+## Post-install
+
+```sh
+z doctor
+z setup
+z ui
+```
+
+- Themes: `z theme list`, `z theme set cyberpunk`
+- AI: `export ZENTRION_AI_PROVIDER=ollama` (see README)
+- Editor: `F3` in the UI
+- Chat: `export ZENTRION_P2P_KEY='shared passphrase'`, then `F6`
+
+## Verifying an archive
+
+Every archive produced by `scripts/package.sh` has a sibling `.sha256` file.
+There is no code signing or notarization yet; treat these as integrity
+checksums, not publisher signatures.

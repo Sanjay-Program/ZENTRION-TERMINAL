@@ -14,7 +14,7 @@ fn z_bin() -> PathBuf {
     if p.ends_with("deps") {
         p.pop();
     }
-    p.join("z")
+    p.join(if cfg!(windows) { "z.exe" } else { "z" })
 }
 
 struct Env {
@@ -255,4 +255,355 @@ fn config_cannot_set_unknown_keys() {
     let (_, err, code) = run(&env, &env.project(), &["config", "set", "secret_key", "x"]);
     assert_ne!(code, 0);
     assert!(err.contains("unknown") || err.contains("non-settable"));
+}
+
+// ---------------------------------------------------------------------------
+// Subsystem surfaces added after the first release: they must do real work,
+// not print success.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn security_scan_finds_a_planted_credential_and_names_the_file() {
+    let env = Env::new("scan-secret");
+    let proj = env.project();
+    let key = concat!("AKIA", "Q7W2", "E9R4", "T1Y6", "U3I8");
+    std::fs::write(
+        proj.join("config.env"),
+        format!("AWS_ACCESS_KEY_ID={key}\n"),
+    )
+    .unwrap();
+    let (out, _, code) = run(&env, &proj, &["security", "scan", "."]);
+    assert_eq!(code, 0);
+    assert!(out.contains("AWS access key"), "got: {out}");
+    assert!(
+        out.contains("config.env"),
+        "finding should name the file: {out}"
+    );
+    assert!(!out.contains(key), "scan output must not echo the secret");
+}
+
+#[test]
+fn security_sast_flags_dynamic_evaluation() {
+    let env = Env::new("sast");
+    let proj = env.project();
+    std::fs::write(proj.join("app.js"), "eval(userInput);\n").unwrap();
+    let (out, _, code) = run(&env, &proj, &["security", "sast"]);
+    assert_eq!(code, 0);
+    assert!(out.contains("dynamic code evaluation"), "got: {out}");
+    assert!(out.contains("app.js"));
+}
+
+#[test]
+fn security_posture_reports_a_verified_audit_chain() {
+    let env = Env::new("posture");
+    let proj = env.project();
+    run(&env, &proj, &["init", ".", "--name", "posture"]);
+    let (out, _, code) = run(&env, &proj, &["security", "posture"]);
+    assert_eq!(code, 0);
+    assert!(out.contains("policy:"));
+    assert!(out.contains("audit:"));
+}
+
+#[test]
+fn theme_list_and_set_roundtrip_through_config() {
+    let env = Env::new("theme");
+    let proj = env.project();
+    let (out, _, code) = run(&env, &proj, &["theme", "list"]);
+    assert_eq!(code, 0);
+    assert!(out.contains("dracula"));
+
+    let (out, _, code) = run(&env, &proj, &["theme", "set", "dracula"]);
+    assert_eq!(code, 0, "theme set failed: {out}");
+
+    let (out, _, code) = run(&env, &proj, &["config", "get", "theme"]);
+    assert_eq!(code, 0);
+    assert_eq!(out.trim(), "dracula");
+
+    let (_, err, code) = run(&env, &proj, &["theme", "set", "not-a-theme"]);
+    assert_ne!(code, 0);
+    assert!(err.contains("unknown theme"));
+}
+
+#[test]
+fn ai_inventory_reports_real_configuration_not_fake_models() {
+    let env = Env::new("ai-inventory");
+    let proj = env.project();
+    let (out, _, code) = run(&env, &proj, &["ai", "inventory"]);
+    assert_eq!(code, 0);
+    assert!(!out.contains("gpt-4"), "must not invent providers: {out}");
+    assert!(!out.contains("Claude"), "must not invent providers: {out}");
+    assert!(
+        out.contains("none configured") || out.contains("ollama"),
+        "got: {out}"
+    );
+}
+
+#[test]
+fn do_routes_a_status_intent_to_the_real_status_command() {
+    let env = Env::new("do-status");
+    let (out, _, code) = run(&env, &env.project(), &["do", "what", "is", "my", "status"]);
+    assert_eq!(code, 0);
+    assert!(out.contains("Intent:"));
+    assert!(out.contains("Zentrion status"));
+}
+
+#[test]
+fn plugin_validation_rejects_a_non_wasm_file() {
+    let env = Env::new("plugin-bad");
+    let proj = env.project();
+    let path = proj.join("evil.wasm");
+    std::fs::write(&path, b"#!/bin/sh\necho pwned\n").unwrap();
+    let (_, err, code) = run(&env, &proj, &["plugin", "inspect", path.to_str().unwrap()]);
+    assert_ne!(code, 0);
+    assert!(
+        err.contains("WebAssembly") || err.contains("bad magic"),
+        "got: {err}"
+    );
+}
+
+#[test]
+fn plugin_validation_accepts_a_minimal_wasm_header() {
+    let env = Env::new("plugin-ok");
+    let proj = env.project();
+    let path = proj.join("hello.wasm");
+    std::fs::write(&path, b"\0asm\x01\0\0\0").unwrap();
+    let (out, _, code) = run(&env, &proj, &["plugin", "inspect", path.to_str().unwrap()]);
+    assert_eq!(code, 0, "plugin inspect failed: {out}");
+    assert!(
+        out.contains("Not executed"),
+        "must not claim execution: {out}"
+    );
+}
+
+#[test]
+fn upgrade_without_a_manifest_fails_honestly() {
+    let env = Env::new("upgrade");
+    let (_, err, code) = run(&env, &env.project(), &["upgrade", "check"]);
+    assert_ne!(code, 0);
+    assert!(err.contains("update channel"), "got: {err}");
+}
+
+#[test]
+fn daemon_status_without_a_daemon_fails_clearly() {
+    let env = Env::new("daemon-down");
+    let (_, err, code) = run(
+        &env,
+        &env.project(),
+        &["daemon", "status", "--port", "29199"],
+    );
+    assert_ne!(code, 0);
+    assert!(err.contains("not reachable"), "got: {err}");
+}
+
+#[test]
+fn code_status_detects_a_cargo_project() {
+    let env = Env::new("code-status");
+    let proj = env.project();
+    std::fs::write(
+        proj.join("Cargo.toml"),
+        "[package]\nname=\"demo\"\nversion=\"0.1.0\"\n",
+    )
+    .unwrap();
+    let (out, _, code) = run(&env, &proj, &["code", "status"]);
+    assert_eq!(code, 0);
+    assert!(out.contains("rust (cargo)"));
+    assert!(out.contains("cargo test"));
+}
+
+#[test]
+fn code_allow_grants_the_detected_toolchain_explicitly() {
+    let env = Env::new("code-allow");
+    let proj = env.project();
+    run(&env, &proj, &["init", ".", "--name", "demo"]);
+    std::fs::write(
+        proj.join("Cargo.toml"),
+        "[package]\nname=\"demo\"\nversion=\"0.1.0\"\n",
+    )
+    .unwrap();
+    let (out, _, code) = run(&env, &proj, &["code", "allow"]);
+    assert_eq!(code, 0, "code allow failed: {out}");
+    let policy = std::fs::read_to_string(proj.join(".zentrion/policy.yaml")).unwrap();
+    assert!(policy.contains("cargo"));
+}
+
+#[test]
+fn network_probe_requires_explicit_permission() {
+    let env = Env::new("net-deny");
+    let (_, err, code) = run(&env, &env.project(), &["network", "dns", "localhost"]);
+    assert_eq!(code, 2);
+    assert!(
+        err.contains("policy") || err.contains("not allow"),
+        "got: {err}"
+    );
+}
+
+#[test]
+fn cloud_scan_flags_world_open_ingress() {
+    let env = Env::new("cloud-scan");
+    let proj = env.project();
+    std::fs::write(
+        proj.join("main.tf"),
+        "resource \"aws_security_group\" \"x\" {\n  cidr_blocks = [\"0.0.0.0/0\"]\n}\n",
+    )
+    .unwrap();
+    let (out, _, code) = run(&env, &proj, &["cloud", "scan", "."]);
+    assert_eq!(code, 0);
+    assert!(
+        out.contains("0.0.0.0/0") || out.contains("internet"),
+        "got: {out}"
+    );
+}
+
+#[test]
+fn vault_secret_names_are_listed_but_values_are_not() {
+    let env = Env::new("vault");
+    let proj = env.project();
+    let marker = concat!("SUPER", "SECRET", "-VALUE-", "123456");
+    let (_, err, code) = run(&env, &proj, &["config", "set-secret", "demo_key", marker]);
+    assert_eq!(code, 0, "set-secret failed: {err}");
+
+    let (out, _, code) = run(&env, &proj, &["config", "list-secrets"]);
+    assert_eq!(code, 0);
+    assert!(out.contains("demo_key"));
+    assert!(
+        !out.contains(marker),
+        "secret value must never be printed: {out}"
+    );
+
+    let (out, _, code) = run(&env, &proj, &["config", "delete-secret", "demo_key"]);
+    assert_eq!(code, 0);
+    assert!(out.contains("Deleted"));
+    let (out, _, _) = run(&env, &proj, &["config", "list-secrets"]);
+    assert!(out.contains("No secrets") || !out.contains("demo_key"));
+}
+
+#[test]
+fn dependency_sbom_reads_the_manifest() {
+    let env = Env::new("sbom-deps");
+    let proj = env.project();
+    std::fs::write(
+        proj.join("Cargo.toml"),
+        "[package]\nname = \"demo\"\nversion = \"0.2.0\"\n\n[dependencies]\nserde = \"1\"\nregex = \"1\"\n",
+    )
+    .unwrap();
+    let (out, _, code) = run(&env, &proj, &["sbom", "--deps"]);
+    assert_eq!(code, 0, "sbom failed: {out}");
+    assert!(out.contains("demo"));
+    assert!(out.contains("serde"));
+    assert!(out.contains("regex"));
+}
+
+#[test]
+fn code_test_runs_through_the_broker_when_allowed() {
+    let env = Env::new("code-run");
+    let proj = env.project();
+    run(&env, &proj, &["init", ".", "--name", "demo"]);
+    std::fs::write(
+        proj.join("Cargo.toml"),
+        "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[workspace]\n",
+    )
+    .unwrap();
+    // The generated project policy denies process spawning; code allow grants
+    // the detected toolchain explicitly.
+    let (out, _, code) = run(&env, &proj, &["code", "allow"]);
+    assert_eq!(code, 0, "code allow failed: {out}");
+    let (out, _, code) = run(&env, &proj, &["run", "cargo", "--version"]);
+    assert_eq!(code, 0, "brokered cargo failed: {out}");
+    assert!(out.contains("cargo"), "got: {out}");
+}
+
+#[cfg(unix)]
+#[test]
+fn mcp_connect_performs_a_real_handshake() {
+    let env = Env::new("mcp");
+    let script = r#"
+import sys, json
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    req = json.loads(line)
+    method = req.get("method")
+    if method == "initialize":
+        result = {"protocolVersion": "2025-06-18", "capabilities": {}, "serverInfo": {"name": "integration-server", "version": "1.0"}}
+    elif method == "tools/list":
+        result = {"tools": [{"name": "echo", "description": "Echo input", "inputSchema": {"type": "object"}}]}
+    else:
+        result = {}
+    if "id" in req:
+        print(json.dumps({"jsonrpc": "2.0", "id": req["id"], "result": result}), flush=True)
+"#;
+    let (out, err, code) = run(
+        &env,
+        &env.project(),
+        &["mcp", "connect", "--allow", "python3", "-u", "-c", script],
+    );
+    assert_eq!(code, 0, "mcp connect failed: {out}\n{err}");
+    assert!(out.contains("integration-server"), "got: {out}");
+    assert!(out.contains("echo"), "got: {out}");
+}
+
+#[test]
+fn bundled_native_tools_require_an_explicit_allowlist() {
+    let env = Env::new("bundled");
+    let proj = env.project();
+    run(&env, &proj, &["init", ".", "--name", "demo"]);
+
+    let (_, err, code) = run(&env, &proj, &["run", "z-sysinfo"]);
+    assert_eq!(code, 2, "bundled tool must be denied by default: {err}");
+    assert!(
+        err.contains("allowlist") || err.contains("blocked"),
+        "got: {err}"
+    );
+
+    let pol = proj.join(".zentrion/policy.yaml");
+    let text = std::fs::read_to_string(&pol)
+        .unwrap()
+        .replace("tools:\n  allow: []", "tools:\n  allow:\n    - z-sysinfo");
+    std::fs::write(&pol, text).unwrap();
+    let (out, _, code) = run(&env, &proj, &["run", "z-sysinfo"]);
+    assert_eq!(code, 0, "allowlisted bundled tool failed: {out}");
+    assert!(out.contains("OS:"));
+}
+
+#[test]
+fn bundled_network_tools_require_network_permission() {
+    let env = Env::new("bundled-net");
+    let proj = env.project();
+    run(&env, &proj, &["init", ".", "--name", "demo"]);
+    let pol = proj.join(".zentrion/policy.yaml");
+    let text = std::fs::read_to_string(&pol)
+        .unwrap()
+        .replace("tools:\n  allow: []", "tools:\n  allow:\n    - z-curl");
+    std::fs::write(&pol, text).unwrap();
+    let (_, err, code) = run(&env, &proj, &["run", "z-curl", "https://example.com"]);
+    assert_eq!(code, 2, "network must be denied: {err}");
+    assert!(err.contains("network"), "got: {err}");
+}
+
+#[test]
+fn remote_scans_require_network_permission() {
+    let env = Env::new("scan-remote");
+    let (_, err, code) = run(&env, &env.project(), &["scan", "example.com"]);
+    assert_eq!(code, 2, "remote scan must be policy-gated: {err}");
+    assert!(
+        err.contains("policy") || err.contains("not allow"),
+        "got: {err}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn mcp_server_startup_requires_process_permission() {
+    let env = Env::new("mcp-deny");
+    let (_, err, code) = run(
+        &env,
+        &env.project(),
+        &["mcp", "connect", "python3", "-c", "print(1)"],
+    );
+    assert_eq!(code, 2, "MCP server should be policy-gated: {err}");
+    assert!(
+        err.contains("policy") || err.contains("not allow"),
+        "got: {err}"
+    );
 }

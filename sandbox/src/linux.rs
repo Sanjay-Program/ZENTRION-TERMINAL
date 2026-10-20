@@ -31,10 +31,21 @@ impl Sandbox for LinuxSandbox {
         let risk = self.risk;
         unsafe {
             command.pre_exec(move || {
+                // Always block privilege gains for brokered children. Higher
+                // risk profiles additionally clear dumpability and core dumps.
+                if libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
                 match risk {
                     RiskLevel::High | RiskLevel::Medium => {
-                        // Basic isolation placeholder using libc
-                        libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);
+                        libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0);
+                        libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL, 0, 0, 0);
+                        let core = libc::rlimit {
+                            rlim_cur: 0,
+                            rlim_max: 0,
+                        };
+                        libc::setrlimit(libc::RLIMIT_CORE, &core);
+                        libc::umask(0o077);
                     }
                     RiskLevel::Low => {}
                 }

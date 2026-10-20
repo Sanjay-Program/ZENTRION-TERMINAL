@@ -1,745 +1,1346 @@
+//! ZENTRION Terminal UI.
+//!
+//! The UI is a real terminal multiplexer: each pane owns a PTY running the
+//! user's shell, rendered through a `vt100` screen buffer. Dashboards, the
+//! editor, copilot and LAN chat sit on top of the same runtime.
+
+mod chat;
+mod copilot;
+mod editor;
+mod research;
+mod session;
+mod theme;
+mod views;
+mod widget;
+
+pub use session::Session;
+pub use theme::Theme;
+
 use anyhow::Result;
 use crossterm::{
-    event::{self, Event, KeyCode, KeyModifiers},
+    event::{
+        self, DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
+        Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind,
+    },
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use sysinfo::System;
+use editor::Editor;
 use ratatui::{
     backend::CrosstermBackend,
-    layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Gauge, List, ListItem, Paragraph, Tabs, Wrap},
-    Terminal,
+    widgets::{Block, Borders, Clear, Paragraph, Tabs, Wrap},
+    Frame, Terminal,
 };
+use std::io::{stdout, Stdout};
+use std::path::PathBuf;
+use std::time::{Duration, Instant};
+use sysinfo::System;
 
-#[derive(Clone, Copy)]
-pub struct Theme {
-    pub primary: Color,
-    pub secondary: Color,
-    pub accent: Color,
-    pub background: Color,
-    pub error: Color,
+const TICK: Duration = Duration::from_millis(33);
+const SYSTEM_REFRESH: Duration = Duration::from_secs(2);
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum View {
+    Terminal,
+    Home,
+    Workflows,
+    Tools,
+    Agents,
+    Ai,
+    Security,
+    Storage,
+    Docs,
+    Research,
+    Chat,
 }
 
-impl Theme {
-    pub fn default() -> Self {
-        Self {
-            primary: Color::Cyan,
-            secondary: Color::DarkGray,
-            accent: Color::Yellow,
-            background: Color::Reset,
-            error: Color::Red,
+impl View {
+    fn dashboard_index(self) -> Option<usize> {
+        match self {
+            View::Terminal => None,
+            View::Home => Some(0),
+            View::Workflows => Some(1),
+            View::Tools => Some(2),
+            View::Agents => Some(3),
+            View::Ai => Some(4),
+            View::Security => Some(5),
+            View::Storage => Some(6),
+            View::Docs => Some(7),
+            View::Research => Some(8),
+            View::Chat => Some(9),
         }
     }
 
-    pub fn cyberpunk() -> Self {
-        Self {
-            primary: Color::Magenta,
-            secondary: Color::Cyan,
-            accent: Color::Yellow,
-            background: Color::Black,
-            error: Color::Red,
+    fn from_dashboard_index(index: usize) -> Self {
+        match index {
+            0 => View::Home,
+            1 => View::Workflows,
+            2 => View::Tools,
+            3 => View::Agents,
+            4 => View::Ai,
+            5 => View::Security,
+            6 => View::Storage,
+            7 => View::Docs,
+            8 => View::Research,
+            _ => View::Chat,
         }
     }
-    
-    pub fn dracula() -> Self {
-        Self {
-            primary: Color::Rgb(189, 147, 249),
-            secondary: Color::Rgb(98, 114, 164),
-            accent: Color::Rgb(255, 121, 198),
-            background: Color::Rgb(40, 42, 54),
-            error: Color::Rgb(255, 85, 85),
+
+    fn from_name(name: &str) -> Option<Self> {
+        match name.trim().to_ascii_lowercase().as_str() {
+            "terminal" | "term" | "shell" => Some(View::Terminal),
+            "home" => Some(View::Home),
+            "workflows" | "workflow" => Some(View::Workflows),
+            "tools" | "tool" => Some(View::Tools),
+            "agents" | "agent" => Some(View::Agents),
+            "ai" | "copilot" => Some(View::Ai),
+            "security" | "sec" => Some(View::Security),
+            "storage" => Some(View::Storage),
+            "docs" | "help" => Some(View::Docs),
+            "research" => Some(View::Research),
+            "chat" | "lan" => Some(View::Chat),
+            _ => None,
+        }
+    }
+
+    fn title(self) -> &'static str {
+        match self {
+            View::Terminal => "Terminal",
+            View::Home => "Home",
+            View::Workflows => "Workflows",
+            View::Tools => "Tools",
+            View::Agents => "Agents",
+            View::Ai => "AI",
+            View::Security => "Security",
+            View::Storage => "Storage",
+            View::Docs => "Docs",
+            View::Research => "Research",
+            View::Chat => "LAN Chat",
         }
     }
 }
-use std::io::stdout;
-use std::time::Duration;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum UserProficiency {
-    Beginner,
-    Professional,
-    Expert,
+struct Tab {
+    sessions: Vec<Session>,
+    focus: usize,
 }
 
-pub async fn start_tui() -> Result<()> {
-    enable_raw_mode()?;
-    let mut stdout = stdout();
-    execute!(stdout, EnterAlternateScreen)?;
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
-    let mut tab = 0usize;
-    let mut proficiency = UserProficiency::Professional;
-    let tabs = [
-        "Home",
-        "Workflows",
-        "Tools",
-        "Agents",
-        "AI",
-        "Security",
-        "Storage",
-        "Docs",
-        "Research",
-        "LAN Chat",
-    ];
+impl Tab {
+    fn title(&self) -> String {
+        let active = self
+            .sessions
+            .get(self.focus)
+            .or_else(|| self.sessions.first());
+        let name = active.map(|s| s.title.as_str()).unwrap_or("shell");
+        if self.sessions.len() > 1 {
+            format!("{name} +{}", self.sessions.len() - 1)
+        } else {
+            name.to_string()
+        }
+    }
+}
 
-    let mut show_palette = false;
-    let mut show_copilot = false;
-    let mut show_sysmon = false;
-    let mut show_editor = false;
-    let mut editor_content = String::from("fn main() {\n    println!(\"Hello Zentrion!\");\n}\n");
-    let mut palette_input = String::new();
-    let mut sys = System::new_all();
-    
-    // For now, load default theme. In the future this comes from config.
-    let theme = Theme::default();
+impl Default for App {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
-    loop {
-        sys.refresh_all();
-        terminal.draw(|f| {
-            // Base layer: split between main app and AI Copilot sidebar if active
-            let base_chunks = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints(if show_copilot {
-                    vec![Constraint::Percentage(70), Constraint::Percentage(30)]
+pub struct App {
+    tabs: Vec<Tab>,
+    active_tab: usize,
+    view: View,
+    dashboard_index: usize,
+    theme: Theme,
+    sys: System,
+    last_system_refresh: Instant,
+    running: bool,
+
+    show_palette: bool,
+    palette_input: String,
+    palette_hint: String,
+
+    editor: Option<Editor>,
+    editor_close_armed: bool,
+    show_sysmon: bool,
+
+    show_copilot: bool,
+    copilot_focus: bool,
+    copilot: copilot::Copilot,
+
+    chat: chat::ChatState,
+    research: research::ResearchState,
+
+    proficiency: views::Proficiency,
+    shell: String,
+    cwd: String,
+    platform: String,
+    data_dir: PathBuf,
+    config_dir: PathBuf,
+    startup_error: Option<String>,
+    pane_rects: Vec<Rect>,
+    last_pane_size: (u16, u16),
+}
+
+impl App {
+    pub fn new() -> Self {
+        let theme = Theme::load();
+        let cwd = std::env::current_dir()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|_| ".".into());
+        let config_dir = z_core::config::user_config_dir().unwrap_or_else(|| PathBuf::from("."));
+        let data_dir = z_core::config::user_data_dir().unwrap_or_else(|| PathBuf::from("."));
+        let mut app = Self {
+            tabs: Vec::new(),
+            active_tab: 0,
+            view: View::Terminal,
+            dashboard_index: 0,
+            theme,
+            sys: System::new_all(),
+            last_system_refresh: Instant::now() - SYSTEM_REFRESH,
+            running: true,
+            show_palette: false,
+            palette_input: String::new(),
+            palette_hint: String::new(),
+            editor: None,
+            editor_close_armed: false,
+            show_sysmon: false,
+            show_copilot: false,
+            copilot_focus: false,
+            copilot: copilot::Copilot::default(),
+            chat: chat::ChatState::default(),
+            research: research::ResearchState::default(),
+            proficiency: views::Proficiency::Professional,
+            shell: session::default_shell(),
+            cwd,
+            platform: format!("{} {}", std::env::consts::OS, std::env::consts::ARCH),
+            data_dir,
+            config_dir,
+            startup_error: None,
+            pane_rects: Vec::new(),
+            last_pane_size: (40, 120),
+        };
+        app.sys.refresh_all();
+        app.new_tab();
+        app
+    }
+
+    pub fn run(&mut self, terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<()> {
+        while self.running {
+            self.poll_backgrounds();
+
+            terminal.draw(|frame| self.draw(frame))?;
+            self.resize_sessions();
+
+            if !self.running {
+                break;
+            }
+
+            if event::poll(TICK)? {
+                match event::read()? {
+                    Event::Key(key) => self.handle_key(key)?,
+                    Event::Mouse(mouse) => self.handle_mouse(mouse),
+                    Event::Paste(text) => self.handle_paste(&text),
+                    Event::Resize(_, _) => {}
+                    _ => {}
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn poll_backgrounds(&mut self) {
+        for tab in &mut self.tabs {
+            for session in &mut tab.sessions {
+                session.poll();
+            }
+        }
+        self.copilot.poll();
+        self.research.poll();
+        if self.chat_started() {
+            self.chat.poll();
+        }
+        if self.last_system_refresh.elapsed() >= SYSTEM_REFRESH {
+            self.sys.refresh_all();
+            self.last_system_refresh = Instant::now();
+        }
+    }
+
+    fn chat_started(&self) -> bool {
+        self.chat.has_bridge()
+    }
+
+    fn resize_sessions(&mut self) {
+        if self.view != View::Terminal || self.show_sysmon || self.editor.is_some() {
+            return;
+        }
+        let rects = self.pane_rects.clone();
+        let Some(tab) = self.tabs.get_mut(self.active_tab) else {
+            return;
+        };
+        for (index, rect) in rects.iter().enumerate() {
+            if let Some(session) = tab.sessions.get_mut(index) {
+                if rect.width > 2 && rect.height > 2 {
+                    session.resize(rect.height - 2, rect.width - 2);
+                }
+            }
+        }
+        if let Some(rect) = rects.first() {
+            if rect.width > 2 && rect.height > 2 {
+                self.last_pane_size = (rect.height - 2, rect.width - 2);
+            }
+        }
+    }
+
+    fn new_tab(&mut self) {
+        let (rows, cols) = self.last_pane_size;
+        match Session::spawn(rows, cols) {
+            Ok(session) => {
+                self.tabs.push(Tab {
+                    sessions: vec![session],
+                    focus: 0,
+                });
+                self.active_tab = self.tabs.len() - 1;
+                self.view = View::Terminal;
+            }
+            Err(e) => {
+                self.startup_error = Some(format!("{e:#}"));
+            }
+        }
+    }
+
+    fn split_pane(&mut self) {
+        let (rows, cols) = self.last_pane_size;
+        let Some(tab) = self.tabs.get_mut(self.active_tab) else {
+            return;
+        };
+        if tab.sessions.len() >= 4 {
+            self.palette_hint = "A tab can hold at most four panes".into();
+            return;
+        }
+        match Session::spawn(rows / 2, cols / 2) {
+            Ok(session) => {
+                tab.sessions.push(session);
+                tab.focus = tab.sessions.len() - 1;
+            }
+            Err(e) => self.startup_error = Some(format!("{e:#}")),
+        }
+    }
+
+    fn close_focused(&mut self) {
+        let tab_count = self.tabs.len();
+        let close_tab = {
+            let Some(tab) = self.tabs.get(self.active_tab) else {
+                return;
+            };
+            if tab.sessions.is_empty() {
+                return;
+            }
+            // A one-pane tab closes as a tab when another tab exists. Closing
+            // the last pane of the last tab replaces it with a fresh shell
+            // instead of leaving the UI empty.
+            tab.sessions.len() == 1 && tab_count > 1
+        };
+        if close_tab {
+            self.tabs.remove(self.active_tab);
+            self.active_tab = self.active_tab.min(self.tabs.len() - 1);
+            return;
+        }
+        let Some(tab) = self.tabs.get_mut(self.active_tab) else {
+            return;
+        };
+        tab.sessions.remove(tab.focus);
+        if tab.sessions.is_empty() {
+            // Never leave the UI without a usable terminal. Replace the last
+            // pane with a fresh shell rather than showing an empty screen.
+            let (rows, cols) = self.last_pane_size;
+            if let Ok(session) = Session::spawn(rows, cols) {
+                tab.sessions.push(session);
+                tab.focus = 0;
+            } else {
+                self.tabs.remove(self.active_tab);
+                if self.tabs.is_empty() {
+                    self.running = false;
                 } else {
-                    vec![Constraint::Percentage(100)]
-                })
-                .split(f.area());
+                    self.active_tab = self.active_tab.min(self.tabs.len() - 1);
+                }
+                return;
+            }
+        }
+        tab.focus = tab.focus.min(tab.sessions.len().saturating_sub(1));
+    }
 
-            let app_area = base_chunks[0];
+    fn cycle_pane(&mut self) {
+        if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+            if !tab.sessions.is_empty() {
+                tab.focus = (tab.focus + 1) % tab.sessions.len();
+            }
+        }
+    }
 
+    fn active_session_mut(&mut self) -> Option<&mut Session> {
+        self.tabs
+            .get_mut(self.active_tab)
+            .and_then(|tab| tab.sessions.get_mut(tab.focus))
+    }
+
+    fn send_to_terminal(&mut self, bytes: &[u8]) {
+        if let Some(session) = self.active_session_mut() {
+            session.write(bytes);
+        }
+    }
+
+    fn handle_mouse(&mut self, event: MouseEvent) {
+        if self.view != View::Terminal || self.editor.is_some() || self.show_sysmon {
+            return;
+        }
+        let focus = self
+            .tabs
+            .get(self.active_tab)
+            .map(|tab| tab.focus)
+            .unwrap_or(0);
+        let Some(rect) = self.pane_rects.get(focus).copied() else {
+            return;
+        };
+        // Reject events on the border or outside this pane.
+        if event.column <= rect.x
+            || event.row <= rect.y
+            || event.column + 1 >= rect.x + rect.width
+            || event.row + 1 >= rect.y + rect.height
+        {
+            return;
+        }
+        // crossterm coordinates are 0-based and global; the PTY wants 1-based
+        // coordinates relative to the pane's content area.
+        let mut local = event;
+        local.column = event.column - rect.x - 1;
+        local.row = event.row - rect.y - 1;
+
+        let Some(session) = self.active_session_mut() else {
+            return;
+        };
+        if session.mouse_enabled() {
+            if let Some(bytes) = session::encode_mouse(local) {
+                session.write(&bytes);
+            }
+            return;
+        }
+        // No mouse protocol: use the wheel for scrollback, ignore clicks.
+        match event.kind {
+            MouseEventKind::ScrollUp => session.scroll_up(3),
+            MouseEventKind::ScrollDown => session.scroll_down(3),
+            _ => {}
+        }
+    }
+
+    fn handle_paste(&mut self, text: &str) {
+        if self.show_palette {
+            self.palette_input.push_str(text);
+            return;
+        }
+        if let Some(editor) = self.editor.as_mut() {
+            if editor.prompt.is_some() {
+                for c in text.chars() {
+                    editor.handle_key(KeyCode::Char(c));
+                }
+            } else {
+                editor.insert_str(text);
+            }
+            return;
+        }
+        if self.copilot_focus && self.show_copilot {
+            self.copilot.input.push_str(text);
+            return;
+        }
+        match self.view {
+            View::Terminal => {
+                // Wrap in bracketed-paste markers so the shell inserts the text
+                // literally instead of executing each newline.
+                let mut payload = Vec::with_capacity(text.len() + 12);
+                payload.extend_from_slice(b"\x1b[200~");
+                payload.extend_from_slice(text.as_bytes());
+                payload.extend_from_slice(b"\x1b[201~");
+                self.send_to_terminal(&payload);
+            }
+            View::Chat => self.chat.input.push_str(text),
+            View::Research => self.research.query.push_str(text),
+            _ => {}
+        }
+    }
+
+    fn set_view(&mut self, view: View) {
+        self.view = view;
+        if let Some(index) = view.dashboard_index() {
+            self.dashboard_index = index;
+        }
+        if view == View::Chat && !self.chat.passphrase_needed() {
+            self.chat.start();
+        }
+    }
+
+    fn cycle_dashboard(&mut self, backwards: bool) {
+        let count = views::DASHBOARD_VIEWS.len();
+        self.dashboard_index = if backwards {
+            (self.dashboard_index + count - 1) % count
+        } else {
+            (self.dashboard_index + 1) % count
+        };
+        self.view = View::from_dashboard_index(self.dashboard_index);
+    }
+
+    fn draw(&mut self, f: &mut Frame) {
+        let area = f.area();
+        if area.width < 20 || area.height < 8 {
+            f.render_widget(
+                Paragraph::new("Terminal too small — resize the window")
+                    .alignment(Alignment::Center),
+                area,
+            );
+            return;
+        }
+
+        let theme = self.theme.clone();
+        let outer = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3),
+                Constraint::Min(3),
+                Constraint::Length(3),
+            ])
+            .split(area);
+
+        self.draw_header(f, outer[0], &theme);
+        let body = outer[1];
+        let (main_body, copilot_area) = if self.show_copilot {
+            let split = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Percentage(70), Constraint::Percentage(30)])
+                .split(body);
+            (split[0], Some(split[1]))
+        } else {
+            (body, None)
+        };
+        let mut pane_rects = Vec::new();
+
+        if self.view == View::Terminal {
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
-                .margin(1)
-                .constraints(
-                    [
-                        Constraint::Length(3),
-                        Constraint::Min(0),
-                        Constraint::Length(3),
-                    ]
-                    .as_ref(),
-                )
-                .split(app_area);
+                .constraints([Constraint::Length(2), Constraint::Min(2)])
+                .split(main_body);
+            self.draw_tab_bar(f, chunks[0], &theme);
+            let terminal_area = chunks[1];
 
-            let header = Paragraph::new(vec![
-                Line::from(vec![
-                    Span::styled(
-                        "ZENTRION",
-                        Style::default()
-                            .fg(theme.primary)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-                    Span::raw(" Terminal Platform"),
-                    Span::styled(
-                        "  local-first secure runtime",
-                        Style::default().fg(theme.secondary),
-                    ),
-                ]),
-                Line::from(
-                    "Brokered tools, AI agents, policy, audit and native scans in one shell.",
+            if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+                let rects = pane_areas(terminal_area, tab.sessions.len());
+                for (index, rect) in rects.iter().copied().enumerate() {
+                    if let Some(session) = tab.sessions.get_mut(index) {
+                        let focused = index == tab.focus && !self.copilot_focus;
+                        widget::render_session(f, rect, session, &theme, focused);
+                        pane_rects.push(rect);
+                    }
+                }
+            }
+            if let Some(error) = &self.startup_error {
+                if pane_rects.is_empty() {
+                    widget::render_terminal_error(f, terminal_area, error, &theme);
+                }
+            }
+        } else {
+            match self.view {
+                View::Chat => self.chat.render(f, main_body, &theme, true),
+                View::Research => self.research.render(f, main_body, &theme, true),
+                other => {
+                    let index = other.dashboard_index().unwrap_or(0);
+                    let sessions: usize = self.tabs.iter().map(|t| t.sessions.len()).sum();
+                    let info = views::DashboardInfo {
+                        shell: &self.shell,
+                        cwd: &self.cwd,
+                        theme: &self.theme.name,
+                        sessions,
+                        platform: &self.platform,
+                        data_dir: self.data_dir.clone(),
+                        config_dir: self.config_dir.clone(),
+                        proficiency: self.proficiency,
+                    };
+                    views::render_dashboard(f, main_body, index, &info, &theme);
+                }
+            }
+        }
+
+        if let Some(area) = copilot_area {
+            self.copilot
+                .render(f, area, &theme, self.copilot_focus && self.show_copilot);
+        }
+
+        self.pane_rects = pane_rects;
+
+        if self.show_sysmon {
+            let popup = centered_rect(body, 90, 80);
+            f.render_widget(Clear, popup);
+            views::render_sysmon(f, popup, &self.sys, &theme);
+        }
+
+        if let Some(editor) = self.editor.as_mut() {
+            let popup = centered_rect(body, 90, 85);
+            f.render_widget(Clear, popup);
+            editor.render(f, popup, &theme);
+        }
+
+        if self.show_palette {
+            self.draw_palette(f, body, &theme);
+        }
+
+        self.draw_footer(f, outer[2], &theme);
+    }
+
+    fn draw_header(&self, f: &mut Frame, area: Rect, theme: &Theme) {
+        let sessions: usize = self.tabs.iter().map(|t| t.sessions.len()).sum();
+        let header = Paragraph::new(vec![
+            Line::from(vec![
+                Span::styled(
+                    " ZENTRION ",
+                    Style::default()
+                        .fg(theme.primary)
+                        .add_modifier(Modifier::BOLD),
                 ),
-            ])
+                Span::styled("TERMINAL ", Style::default().fg(theme.text)),
+                Span::styled(
+                    format!("v{}", env!("CARGO_PKG_VERSION")),
+                    Style::default().fg(theme.secondary),
+                ),
+                Span::styled(
+                    format!(
+                        "  ·  theme {}  ·  {} panes  ·  {}",
+                        theme.name, sessions, self.platform
+                    ),
+                    Style::default().fg(theme.secondary),
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled(" cwd ", Style::default().fg(theme.accent)),
+                Span::raw(self.cwd.as_str()),
+                Span::styled("   view ", Style::default().fg(theme.accent)),
+                Span::raw(self.view.title()),
+                Span::styled(
+                    "   local-first · no telemetry",
+                    Style::default().fg(theme.secondary),
+                ),
+            ]),
+        ])
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(theme.secondary)),
+        );
+        f.render_widget(header, area);
+    }
+
+    fn draw_tab_bar(&self, f: &mut Frame, area: Rect, theme: &Theme) {
+        let titles: Vec<Line> = self
+            .tabs
+            .iter()
+            .enumerate()
+            .map(|(index, tab)| {
+                let dead = tab.sessions.iter().all(|s| s.is_dead());
+                let marker = if dead { "×" } else { "" };
+                Line::from(format!(" {}{} {} ", index + 1, marker, tab.title()))
+            })
+            .collect();
+        let tabs = Tabs::new(titles)
+            .select(self.active_tab)
+            .style(Style::default().fg(theme.secondary))
+            .highlight_style(
+                Style::default()
+                    .fg(theme.primary)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .divider(Span::styled("│", Style::default().fg(theme.secondary)))
             .block(
                 Block::default()
-                    .borders(Borders::ALL)
-                    .title("Command Center")
-                    .style(Style::default().bg(theme.background)),
+                    .borders(Borders::TOP | Borders::BOTTOM)
+                    .border_style(Style::default().fg(theme.secondary)),
             );
-            f.render_widget(header, chunks[0]);
+        f.render_widget(tabs, area);
+    }
 
-            let body = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints(
-                    [
-                        Constraint::Length(28),
-                        Constraint::Min(40),
-                        Constraint::Length(34),
-                    ]
-                    .as_ref(),
-                )
-                .split(chunks[1]);
+    fn draw_footer(&self, f: &mut Frame, area: Rect, theme: &Theme) {
+        let hint = if self.show_palette {
+            "Palette: type a shell command or :action · Enter runs · Esc closes".to_string()
+        } else if let Some(editor) = &self.editor {
+            format!(
+                "Editor: Ctrl+S save · Ctrl+O open · Esc close · {}",
+                editor.status
+            )
+        } else if self.show_sysmon {
+            "System monitor: Esc closes".to_string()
+        } else if self.view == View::Terminal {
+            "F7 tab · F8 split · F9 close · F2 palette · F3 editor · F4 AI · F5 monitor · F6 chat · Alt+V dashboard · F10 quit"
+                .to_string()
+        } else {
+            "1-0 views · Tab next · Alt+1..0 jump · Alt+H home · Alt+V terminal · F2 palette · F10 quit".to_string()
+        };
+        let footer = Paragraph::new(vec![
+            Line::from(Span::styled(hint, Style::default().fg(theme.secondary))),
+            Line::from(vec![
+                Span::styled(" Alt+1..9", Style::default().fg(theme.accent)),
+                Span::raw(" tab  "),
+                Span::styled("Alt+O", Style::default().fg(theme.accent)),
+                Span::raw(" pane  "),
+                Span::styled("Shift+PgUp/PgDn", Style::default().fg(theme.accent)),
+                Span::raw(" scroll  "),
+                Span::styled("Alt+←/→", Style::default().fg(theme.accent)),
+                Span::raw(" prev/next  "),
+                Span::styled("Alt+P", Style::default().fg(theme.accent)),
+                Span::raw(" proficiency"),
+            ]),
+        ])
+        .wrap(Wrap { trim: true })
+        .block(
+            Block::default()
+                .borders(Borders::TOP)
+                .border_style(Style::default().fg(theme.secondary)),
+        );
+        f.render_widget(footer, area);
+    }
 
-            render_nav(f, body[0], tab);
-            
-            // Multiplexing inside the main view: if Expert, show split panes (simulated)
-            if show_sysmon {
-                render_sysmon(f, body[1], &sys);
-            } else if show_editor {
-                render_editor(f, body[1], &editor_content, theme);
-            } else if proficiency == UserProficiency::Expert && tab == 0 {
-                let main_splits = Layout::default()
-                    .direction(Direction::Vertical)
-                    .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-                    .split(body[1]);
-                render_main(f, main_splits[0], tab, proficiency);
-                
-                let lower_splits = Layout::default()
-                    .direction(Direction::Horizontal)
-                    .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-                    .split(main_splits[1]);
-                
-                let process_pane = Paragraph::new("top - 20:30:45 up 5 days\nTasks: 130 total\n%Cpu(s): 2.5 us").block(Block::default().borders(Borders::ALL).title("Pane 2 (Process)"));
-                let tail_pane = Paragraph::new("tail -f /var/log/syslog\nSystem healthy.").block(Block::default().borders(Borders::ALL).title("Pane 3 (Logs)"));
-                f.render_widget(process_pane, lower_splits[0]);
-                f.render_widget(tail_pane, lower_splits[1]);
+    fn draw_palette(&self, f: &mut Frame, body: Rect, theme: &Theme) {
+        let popup = centered_rect(body, 70, 50);
+        f.render_widget(Clear, popup);
+
+        let suggestions = [
+            ":theme cyberpunk",
+            ":theme dracula",
+            ":theme nord",
+            ":theme matrix",
+            ":new",
+            ":split",
+            ":close",
+            ":view security",
+            ":e README.md",
+            ":ai explain this error",
+            "z doctor",
+            "z status",
+            "z bundle list",
+            "z scan .",
+            "git status",
+            "cargo test",
+        ];
+        let needle = self.palette_input.to_ascii_lowercase();
+        let mut lines = vec![
+            Line::from(vec![
+                Span::styled("› ", Style::default().fg(theme.accent)),
+                Span::raw(self.palette_input.as_str()),
+                Span::styled("▏", Style::default().fg(theme.accent)),
+            ]),
+            Line::from(""),
+        ];
+        for suggestion in suggestions {
+            if needle.is_empty() || suggestion.to_ascii_lowercase().contains(&needle) {
+                lines.push(Line::from(vec![
+                    Span::styled("  ", Style::default()),
+                    Span::styled(suggestion, Style::default().fg(theme.text)),
+                ]));
+            }
+        }
+        if !self.palette_hint.is_empty() {
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                self.palette_hint.clone(),
+                Style::default().fg(theme.warning),
+            )));
+        }
+
+        let palette = Paragraph::new(lines).wrap(Wrap { trim: false }).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(theme.accent))
+                .title(" Command Palette "),
+        );
+        f.render_widget(palette, popup);
+        f.set_cursor_position((
+            popup.x + 3 + self.palette_input.chars().count() as u16,
+            popup.y + 1,
+        ));
+    }
+
+    fn handle_key(&mut self, key: KeyEvent) -> Result<()> {
+        if key.kind == KeyEventKind::Release {
+            return Ok(());
+        }
+        let mods = key.modifiers;
+        let ctrl = mods.contains(KeyModifiers::CONTROL);
+        let shift = mods.contains(KeyModifiers::SHIFT);
+        let alt = mods.contains(KeyModifiers::ALT);
+        // Only bindings a terminal can actually distinguish are used here:
+        // function keys and Alt+<key>. Most terminals encode Ctrl+Shift+<letter>
+        // identically to Ctrl+<letter>, so such chords would either be
+        // unreachable or steal keystrokes from the shell.
+        //
+        // The palette is modal.
+        if self.show_palette {
+            if key.code == KeyCode::F(2) {
+                self.show_palette = false;
+                return Ok(());
+            }
+            self.handle_palette_key(key);
+            return Ok(());
+        }
+
+        if key.code == KeyCode::F(10) {
+            self.running = false;
+            return Ok(());
+        }
+        if key.code == KeyCode::F(2) {
+            self.show_palette = true;
+            self.palette_input.clear();
+            self.palette_hint.clear();
+            return Ok(());
+        }
+        if key.code == KeyCode::F(7) {
+            self.new_tab();
+            return Ok(());
+        }
+        if key.code == KeyCode::F(9) {
+            self.close_focused();
+            return Ok(());
+        }
+        if key.code == KeyCode::F(8) {
+            self.split_pane();
+            self.set_view(View::Terminal);
+            return Ok(());
+        }
+        if key.code == KeyCode::F(3) {
+            self.toggle_editor();
+            return Ok(());
+        }
+        if key.code == KeyCode::F(5) {
+            self.show_sysmon = !self.show_sysmon;
+            return Ok(());
+        }
+        if key.code == KeyCode::F(4) {
+            self.show_copilot = !self.show_copilot;
+            self.copilot_focus = self.show_copilot;
+            return Ok(());
+        }
+        if key.code == KeyCode::F(6) {
+            self.set_view(View::Chat);
+            return Ok(());
+        }
+
+        if key.code == KeyCode::F(1) {
+            if self.view == View::Terminal {
+                self.set_view(View::Home);
             } else {
-                render_main(f, body[1], tab, proficiency);
+                self.set_view(View::Terminal);
             }
+            return Ok(());
+        }
 
-            render_status(f, body[2], proficiency);
-
-            let footer = Paragraph::new(Line::from(vec![
-                Span::styled("Ctrl+Q", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
-                Span::raw(" quit  "),
-                Span::styled("Alt+S", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
-                Span::raw(" sysmon  "),
-                Span::styled("Alt+C", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
-                Span::raw(" copilot  "),
-                Span::styled("Alt+E", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
-                Span::raw(" editor  "),
-                Span::styled("Ctrl+P", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
-                Span::raw(" palette  "),
-                Span::styled("Tab", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
-                Span::raw(" next  "),
-            ]))
-            .block(Block::default().borders(Borders::ALL).style(Style::default().bg(theme.background)));
-            f.render_widget(footer, chunks[2]);
-
-            // Render AI Copilot Sidebar if active
-            if show_copilot {
-                let copilot_area = base_chunks[1];
-                let copilot = Paragraph::new(vec![
-                    Line::from(Span::styled("Zentrion Copilot", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD))),
-                    Line::from(""),
-                    Line::from("> Analyzing current layout..."),
-                    Line::from("> How can I assist you with your terminal workflows today?"),
-                    Line::from(""),
-                    Line::from(Span::styled("Try asking:", Style::default().fg(Color::DarkGray))),
-                    Line::from("  - 'How do I secure my project?'"),
-                    Line::from("  - 'Explain this nmap error'"),
-                ])
-                .block(Block::default().borders(Borders::ALL).title("AI Copilot (Warp Style)"));
-                f.render_widget(copilot, copilot_area);
+        if alt {
+            if let KeyCode::Char(c) = key.code {
+                if c.is_ascii_digit() {
+                    let index = if c == '0' {
+                        9
+                    } else {
+                        c as usize - '1' as usize
+                    };
+                    if self.view == View::Terminal {
+                        if index < self.tabs.len() {
+                            self.active_tab = index;
+                        }
+                    } else if index < views::DASHBOARD_VIEWS.len() {
+                        self.dashboard_index = index;
+                        self.set_view(View::from_dashboard_index(index));
+                    }
+                    return Ok(());
+                }
+                if c.eq_ignore_ascii_case(&'h') {
+                    self.dashboard_index = 0;
+                    self.set_view(View::Home);
+                    return Ok(());
+                }
+                if c.eq_ignore_ascii_case(&'v') {
+                    if self.view == View::Terminal {
+                        self.set_view(View::from_dashboard_index(self.dashboard_index));
+                    } else {
+                        self.set_view(View::Terminal);
+                    }
+                    return Ok(());
+                }
+                if c.eq_ignore_ascii_case(&'o') {
+                    self.cycle_pane();
+                    return Ok(());
+                }
+                if c.eq_ignore_ascii_case(&'p') {
+                    self.proficiency = match self.proficiency {
+                        views::Proficiency::Beginner => views::Proficiency::Professional,
+                        views::Proficiency::Professional => views::Proficiency::Expert,
+                        views::Proficiency::Expert => views::Proficiency::Beginner,
+                    };
+                    return Ok(());
+                }
             }
-
-            // Render Command Palette overlay if active
-            if show_palette {
-                let palette_area = ratatui::layout::Rect::new(
-                    app_area.width / 4,
-                    app_area.height / 3,
-                    app_area.width / 2,
-                    10,
-                );
-                
-                let palette_text = format!("> {}\n\nSuggested:\n  z do secure my project\n  z bundle plan kali-top10\n  z ai analyze", palette_input);
-                
-                let palette = Paragraph::new(palette_text)
-                    .block(Block::default().borders(Borders::ALL).title("Command Palette (Type to search)").style(Style::default().bg(Color::Black)));
-                
-                f.render_widget(ratatui::widgets::Clear, palette_area); // clear background
-                f.render_widget(palette, palette_area);
+            if key.code == KeyCode::Left {
+                if !self.tabs.is_empty() {
+                    self.active_tab = (self.active_tab + self.tabs.len() - 1) % self.tabs.len();
+                    self.set_view(View::Terminal);
+                }
+                return Ok(());
             }
-        })?;
+            if key.code == KeyCode::Right {
+                if !self.tabs.is_empty() {
+                    self.active_tab = (self.active_tab + 1) % self.tabs.len();
+                    self.set_view(View::Terminal);
+                }
+                return Ok(());
+            }
+        }
 
-        if event::poll(Duration::from_millis(100))? {
-            if let Event::Key(key) = event::read()? {
-                if show_palette {
+        if self.show_sysmon {
+            if key.code == KeyCode::Esc {
+                self.show_sysmon = false;
+            }
+            return Ok(());
+        }
+
+        if let Some(editor) = self.editor.as_mut() {
+            if ctrl && !shift {
+                match key.code {
+                    KeyCode::Char('s') | KeyCode::Char('S') => {
+                        editor.save();
+                        return Ok(());
+                    }
+                    KeyCode::Char('o') | KeyCode::Char('O') => {
+                        editor.open_prompt();
+                        return Ok(());
+                    }
+                    _ => {}
+                }
+            }
+            if key.code == KeyCode::Esc {
+                if editor.prompt.is_some() {
+                    editor.handle_key(KeyCode::Esc);
+                    return Ok(());
+                }
+                if editor.dirty && !self.editor_close_armed {
+                    self.editor_close_armed = true;
+                    editor.status = "Unsaved changes — Ctrl+S saves, Esc again discards".into();
+                    return Ok(());
+                }
+                self.editor = None;
+                self.editor_close_armed = false;
+                return Ok(());
+            }
+            if !editor.handle_key(key.code) {
+                self.editor = None;
+            }
+            self.editor_close_armed = false;
+            return Ok(());
+        }
+
+        if self.copilot_focus && self.show_copilot {
+            match key.code {
+                KeyCode::Esc => {
+                    self.copilot_focus = false;
+                    return Ok(());
+                }
+                KeyCode::Enter => {
+                    self.copilot.submit();
+                    return Ok(());
+                }
+                KeyCode::Backspace => {
+                    self.copilot.input.pop();
+                    return Ok(());
+                }
+                KeyCode::PageUp => {
+                    self.copilot.scroll = self.copilot.scroll.saturating_sub(5);
+                    return Ok(());
+                }
+                KeyCode::PageDown => {
+                    self.copilot.scroll = self.copilot.scroll.saturating_add(5);
+                    return Ok(());
+                }
+                KeyCode::Char('u') if ctrl => {
+                    self.copilot.input.clear();
+                    return Ok(());
+                }
+                KeyCode::Char(c) if !ctrl && !alt => {
+                    self.copilot.input.push(c);
+                    return Ok(());
+                }
+                _ => return Ok(()),
+            }
+        }
+
+        match self.view {
+            View::Terminal => {
+                if shift {
                     match key.code {
-                        KeyCode::Esc => show_palette = false,
-                        KeyCode::Enter => {
-                            show_palette = false;
-                            palette_input.clear();
+                        KeyCode::PageUp => {
+                            if let Some(session) = self.active_session_mut() {
+                                session.scroll_up(10);
+                            }
+                            return Ok(());
                         }
-                        KeyCode::Backspace => {
-                            palette_input.pop();
+                        KeyCode::PageDown => {
+                            if let Some(session) = self.active_session_mut() {
+                                session.scroll_down(10);
+                            }
+                            return Ok(());
                         }
-                        KeyCode::Char(c) if !key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) => {
-                            palette_input.push(c);
+                        KeyCode::Home => {
+                            if let Some(session) = self.active_session_mut() {
+                                session.scroll_up(usize::MAX / 2);
+                            }
+                            return Ok(());
+                        }
+                        KeyCode::End => {
+                            if let Some(session) = self.active_session_mut() {
+                                session.scroll_to_bottom();
+                            }
+                            return Ok(());
                         }
                         _ => {}
-                    }
-                    if key.modifiers.is_empty() {
-                        continue;
                     }
                 }
-
-                if key.modifiers.contains(KeyModifiers::CONTROL) {
-                    match key.code {
-                        KeyCode::Char('q') | KeyCode::Char('Q') => break,
-                        KeyCode::Char('p') | KeyCode::Char('P') => show_palette = !show_palette,
-                        _ => {}
-                    }
-                } else if key.modifiers.contains(KeyModifiers::ALT) {
-                    match key.code {
-                        KeyCode::Char('s') | KeyCode::Char('S') => show_sysmon = !show_sysmon,
-                        KeyCode::Char('c') | KeyCode::Char('C') => show_copilot = !show_copilot,
-                        KeyCode::Char('p') | KeyCode::Char('P') => show_palette = !show_palette,
-                        KeyCode::Char('e') | KeyCode::Char('E') => show_editor = !show_editor,
-                        _ => {}
-                    }
-                } else if show_editor {
-                    match key.code {
-                        KeyCode::Char(c) => editor_content.push(c),
-                        KeyCode::Enter => editor_content.push('\n'),
-                        KeyCode::Backspace => { editor_content.pop(); }
-                        _ => {}
-                    }
-                } else {
-                    match key.code {
-                        KeyCode::Char('q') => break,
-                        KeyCode::Char('p') => {
-                            proficiency = match proficiency {
-                                UserProficiency::Beginner => UserProficiency::Professional,
-                                UserProficiency::Professional => UserProficiency::Expert,
-                                UserProficiency::Expert => UserProficiency::Beginner,
-                            };
-                        }
-                        KeyCode::Tab => tab = (tab + 1) % tabs.len(),
-                        KeyCode::BackTab => tab = (tab + tabs.len() - 1) % tabs.len(),
-                        KeyCode::Char('1') => tab = 0,
-                        KeyCode::Char('2') => tab = 1,
-                        KeyCode::Char('3') => tab = 2,
-                        KeyCode::Char('4') => tab = 3,
-                        KeyCode::Char('5') => tab = 4,
-                        KeyCode::Char('6') => tab = 5,
-                        KeyCode::Char('7') => tab = 6,
-                        KeyCode::Char('8') => tab = 7,
-                        KeyCode::Char('9') => tab = 8,
-                        KeyCode::Char('0') => tab = 9,
-                        _ => {}
+                if let Some(session) = self.active_session_mut() {
+                    let app_cursor = session.parser.screen().application_cursor();
+                    if let Some(bytes) = session::encode_key(key, app_cursor) {
+                        session.write(&bytes);
                     }
                 }
+            }
+            View::Chat => match key.code {
+                KeyCode::Esc => self.set_view(View::Terminal),
+                KeyCode::Tab => self.cycle_dashboard(false),
+                KeyCode::BackTab => self.cycle_dashboard(true),
+                KeyCode::Enter => self.chat.send(),
+                KeyCode::Backspace => self.chat.backspace(),
+                KeyCode::PageUp => self.chat.scroll_up(),
+                KeyCode::PageDown => self.chat.scroll_down(),
+                KeyCode::Char('u') if ctrl => self.chat.clear_input(),
+                KeyCode::Char(c) if !ctrl && !alt => self.chat.handle_char(c),
+                _ => {}
+            },
+            View::Research => match key.code {
+                KeyCode::Esc => self.set_view(View::Terminal),
+                KeyCode::Tab => self.cycle_dashboard(false),
+                KeyCode::BackTab => self.cycle_dashboard(true),
+                KeyCode::Enter => self.research.submit(),
+                KeyCode::Backspace => {
+                    self.research.query.pop();
+                }
+                KeyCode::PageUp => self.research.scroll = self.research.scroll.saturating_sub(5),
+                KeyCode::PageDown => self.research.scroll = self.research.scroll.saturating_add(5),
+                KeyCode::Char(c) if !ctrl && !alt => self.research.query.push(c),
+                _ => {}
+            },
+            _ => match key.code {
+                KeyCode::Esc => self.set_view(View::Terminal),
+                KeyCode::Tab => self.cycle_dashboard(false),
+                KeyCode::BackTab => self.cycle_dashboard(true),
+                KeyCode::Char(c) if !ctrl && !alt => {
+                    if let Some(digit) = c.to_digit(10) {
+                        let index = if digit == 0 { 9 } else { digit as usize - 1 };
+                        self.dashboard_index = index;
+                        self.set_view(View::from_dashboard_index(index));
+                    }
+                }
+                _ => {}
+            },
+        }
+
+        Ok(())
+    }
+
+    fn toggle_editor(&mut self) {
+        if self.editor.is_some() {
+            self.editor = None;
+            self.editor_close_armed = false;
+            return;
+        }
+        let editor = if std::path::Path::new("README.md").exists() {
+            Editor::open("README.md")
+        } else {
+            Editor::default()
+        };
+        self.editor = Some(editor);
+        self.editor_close_armed = false;
+    }
+
+    fn handle_palette_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => {
+                self.show_palette = false;
+            }
+            KeyCode::Enter => {
+                let text = self.palette_input.trim().to_string();
+                self.palette_input.clear();
+                if text.is_empty() {
+                    self.show_palette = false;
+                    return;
+                }
+                self.execute_palette(&text);
+            }
+            KeyCode::Backspace => {
+                self.palette_input.pop();
+            }
+            KeyCode::Char(c)
+                if !key
+                    .modifiers
+                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
+                self.palette_input.push(c);
+            }
+            _ => {}
+        }
+    }
+
+    fn execute_palette(&mut self, text: &str) {
+        if let Some(action) = text.strip_prefix(':') {
+            let mut parts = action.splitn(2, char::is_whitespace);
+            let command = parts.next().unwrap_or("").to_ascii_lowercase();
+            let argument = parts.next().unwrap_or("").trim().to_string();
+            match command.as_str() {
+                "new" | "tab" => {
+                    self.new_tab();
+                    self.show_palette = false;
+                }
+                "split" => {
+                    self.split_pane();
+                    self.set_view(View::Terminal);
+                    self.show_palette = false;
+                }
+                "close" => {
+                    self.close_focused();
+                    self.show_palette = false;
+                }
+                "theme" => match Theme::named(&argument) {
+                    Some(theme) => {
+                        let persisted = Theme::persist(&argument);
+                        self.theme = theme;
+                        self.palette_hint = match persisted {
+                            Ok(()) => format!("Theme set to {argument}"),
+                            Err(e) => format!("Theme applied for this session only: {e}"),
+                        };
+                        self.show_palette = false;
+                    }
+                    None => {
+                        self.palette_hint = format!(
+                            "Unknown theme `{argument}`. Try: {}",
+                            Theme::available().join(", ")
+                        );
+                    }
+                },
+                "view" => match View::from_name(&argument) {
+                    Some(view) => {
+                        self.set_view(view);
+                        self.show_palette = false;
+                    }
+                    None => self.palette_hint = format!("Unknown view `{argument}`"),
+                },
+                "e" | "edit" => {
+                    if argument.is_empty() {
+                        self.toggle_editor();
+                    } else {
+                        let path = PathBuf::from(&argument);
+                        self.editor = Some(if path.exists() {
+                            Editor::open(&path)
+                        } else {
+                            Editor {
+                                path: Some(path.clone()),
+                                dirty: true,
+                                status: format!("New file {}", path.display()),
+                                ..Editor::default()
+                            }
+                        });
+                    }
+                    self.show_palette = false;
+                }
+                "ai" => {
+                    self.show_copilot = true;
+                    self.copilot_focus = true;
+                    if !argument.is_empty() {
+                        self.copilot.input = argument;
+                        self.copilot.submit();
+                    }
+                    self.show_palette = false;
+                }
+                "chat" => {
+                    self.set_view(View::Chat);
+                    self.show_palette = false;
+                }
+                "sysmon" | "monitor" => {
+                    self.show_sysmon = true;
+                    self.show_palette = false;
+                }
+                "quit" | "q" => {
+                    self.running = false;
+                }
+                "help" => {
+                    self.set_view(View::Docs);
+                    self.show_palette = false;
+                }
+                other => {
+                    self.palette_hint = format!(
+                        "Unknown action `:{other}`. Try :new, :split, :close, :theme, :view, :e, :ai, :chat, :quit"
+                    );
+                }
+            }
+            return;
+        }
+
+        self.set_view(View::Terminal);
+        if let Some(session) = self.active_session_mut() {
+            session.write_line(text);
+        }
+        self.show_palette = false;
+    }
+}
+
+fn pane_areas(area: Rect, count: usize) -> Vec<Rect> {
+    match count {
+        0 => vec![],
+        1 => vec![area],
+        2 => Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+            .split(area)
+            .to_vec(),
+        3 => {
+            let outer = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+                .split(area);
+            let right = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+                .split(outer[1]);
+            vec![outer[0], right[0], right[1]]
+        }
+        _ => {
+            let rows = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+                .split(area);
+            let top = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+                .split(rows[0]);
+            let bottom = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+                .split(rows[1]);
+            vec![top[0], top[1], bottom[0], bottom[1]]
+        }
+    }
+}
+
+fn centered_rect(area: Rect, percent_x: u16, percent_y: u16) -> Rect {
+    let vertical = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Percentage(percent_y),
+            Constraint::Percentage((100 - percent_y) / 2),
+        ])
+        .split(area);
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((100 - percent_x) / 2),
+        ])
+        .split(vertical[1])[1]
+}
+
+struct TerminalGuard;
+
+impl TerminalGuard {
+    fn enter() -> Result<Self> {
+        enable_raw_mode()?;
+        execute!(
+            stdout(),
+            EnterAlternateScreen,
+            EnableBracketedPaste,
+            EnableMouseCapture
+        )?;
+
+        let original = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            let _ = disable_raw_mode();
+            let _ = execute!(
+                stdout(),
+                LeaveAlternateScreen,
+                DisableBracketedPaste,
+                DisableMouseCapture,
+                crossterm::cursor::Show
+            );
+            original(info);
+        }));
+
+        Ok(Self)
+    }
+}
+
+impl Drop for TerminalGuard {
+    fn drop(&mut self) {
+        let _ = disable_raw_mode();
+        let _ = execute!(
+            stdout(),
+            LeaveAlternateScreen,
+            DisableBracketedPaste,
+            DisableMouseCapture,
+            crossterm::cursor::Show
+        );
+    }
+}
+
+/// Launch the interactive UI. Blocks until the user quits.
+pub fn start_tui() -> Result<()> {
+    let guard = TerminalGuard::enter()?;
+    let backend = CrosstermBackend::new(stdout());
+    let mut terminal = Terminal::new(backend)?;
+    let mut app = App::new();
+    let result = app.run(&mut terminal);
+    drop(terminal);
+    drop(guard);
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pane_layouts_cover_the_area() {
+        let area = Rect::new(0, 0, 120, 40);
+        for count in 1..=4 {
+            let panes = pane_areas(area, count);
+            assert_eq!(panes.len(), count);
+            for pane in panes {
+                assert!(pane.width > 0 && pane.height > 0);
             }
         }
     }
 
-    disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-    terminal.show_cursor()?;
-    Ok(())
-}
+    #[test]
+    fn view_names_round_trip() {
+        for name in ["terminal", "home", "security", "chat", "docs"] {
+            assert!(View::from_name(name).is_some());
+        }
+        assert!(View::from_name("nope").is_none());
+    }
 
-fn render_nav(f: &mut ratatui::Frame, area: Rect, tab: usize) {
-    let titles = [
-        "Home",
-        "Workflows",
-        "Tools",
-        "Agents",
-        "AI",
-        "Security",
-        "Storage",
-        "Docs",
-        "Research",
-        "LAN Chat",
-    ]
-    .iter()
-    .map(|t| Line::from(Span::raw(*t)))
-    .collect::<Vec<_>>();
-    let nav_chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(3), Constraint::Min(0)].as_ref())
-        .split(area);
-    let tabs = Tabs::new(titles)
-        .select(tab)
-        .style(Style::default().fg(Color::Gray))
-        .highlight_style(
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )
-        .block(Block::default().borders(Borders::ALL).title("Views"));
-    f.render_widget(tabs, nav_chunks[0]);
-
-    let items = [
-        ListItem::new("1 Home: health + next steps"),
-        ListItem::new("2 Workflows: daily roles"),
-        ListItem::new("3 Tools: bundles + registry"),
-        ListItem::new("4 Agents: safe automation"),
-        ListItem::new("5 AI: local/API models"),
-        ListItem::new("6 Security: scans + audit"),
-        ListItem::new("7 Storage: durable data"),
-        ListItem::new("8 Docs: learning map"),
-        ListItem::new("9 Research: deep agentic scraping"),
-        ListItem::new("0 LAN Chat: P2P secure comms"),
-    ];
-    let list = List::new(items)
-        .block(Block::default().borders(Borders::ALL).title("Workflow"))
-        .style(Style::default().fg(Color::White));
-    f.render_widget(list, nav_chunks[1]);
-}
-
-fn render_main(f: &mut ratatui::Frame, area: Rect, tab: usize, _proficiency: UserProficiency) {
-    match tab {
-        0 => render_home(f, area),
-        1 => render_workflows(f, area),
-        2 => render_tools(f, area),
-        3 => render_agents(f, area),
-        4 => render_ai(f, area),
-        5 => render_security(f, area),
-        6 => render_storage(f, area),
-        7 => render_docs(f, area),
-        8 => render_research(f, area),
-        _ => render_chat(f, area),
+    #[test]
+    fn centered_rect_stays_inside() {
+        let area = Rect::new(0, 0, 100, 40);
+        let popup = centered_rect(area, 70, 50);
+        assert!(popup.x + popup.width <= area.width);
+        assert!(popup.y + popup.height <= area.height);
     }
 }
-
-fn render_status(f: &mut ratatui::Frame, area: Rect, proficiency: UserProficiency) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints(
-            [
-                Constraint::Length(7),
-                Constraint::Length(7),
-                Constraint::Min(6),
-            ]
-            .as_ref(),
-        )
-        .split(area);
-    let posture = Paragraph::new(vec![
-        Line::from(format!("Mode: local-first | Proficiency: {:?}", proficiency)),
-        Line::from("Registry: bundled"),
-        Line::from("Tools: 36 curated"),
-        Line::from("Approvals: explicit"),
-    ])
-    .block(Block::default().borders(Borders::ALL).title("Platform"));
-    f.render_widget(posture, chunks[0]);
-
-    let agents = Paragraph::new(vec![
-        Line::from("Planner: ready"),
-        Line::from("Reviewer: guardrails"),
-        Line::from("Operator: brokered"),
-        Line::from("Trace: enabled"),
-    ])
-    .block(Block::default().borders(Borders::ALL).title("Agents"));
-    f.render_widget(agents, chunks[1]);
-
-    let cmd_list = match proficiency {
-        UserProficiency::Beginner => vec![
-            ListItem::new("z bundle plan web"),
-            ListItem::new("z docs workflows"),
-            ListItem::new("z do secure my project"),
-        ],
-        UserProficiency::Professional => vec![
-            ListItem::new("z bundle list"),
-            ListItem::new("z profile list"),
-            ListItem::new("z bundle plan recon"),
-            ListItem::new("z search devsecops"),
-            ListItem::new("z doctor"),
-        ],
-        UserProficiency::Expert => vec![
-            ListItem::new("z policy validate"),
-            ListItem::new("z scan ."),
-            ListItem::new("z finding list"),
-            ListItem::new("z report latest"),
-            ListItem::new("z audit verify"),
-            ListItem::new("z storage show"),
-        ],
-    };
-
-    let commands = List::new(cmd_list)
-    .block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title("Next Commands"),
-    );
-    f.render_widget(commands, chunks[2]);
-}
-
-fn render_home(f: &mut ratatui::Frame, area: Rect) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints(
-            [
-                Constraint::Length(6),
-                Constraint::Length(5),
-                Constraint::Min(6),
-            ]
-            .as_ref(),
-        )
-        .split(area);
-    let health = Paragraph::new(vec![
-        Line::from("Runtime: local-only    Broker: enabled    Network: explicit"),
-        Line::from("Policy: active         Secrets: hidden     Audit: chain verified"),
-        Line::from("Suggested next: z setup, z profile list, z bundle list"),
-    ])
-    .block(Block::default().borders(Borders::ALL).title("Operations"));
-    f.render_widget(health, chunks[0]);
-    f.render_widget(
-        Gauge::default()
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title("Security Posture"),
-            )
-            .gauge_style(Style::default().fg(Color::Green))
-            .percent(82),
-        chunks[1],
-    );
-    let activity = List::new([
-        ListItem::new("tool.install previews require checksum and trust review"),
-        ListItem::new("raw program execution routes through identity, policy and broker"),
-        ListItem::new("doctor remains offline by design"),
-        ListItem::new("bundle plans print reviewable install commands"),
-        ListItem::new("storage survives upgrade and normal uninstall"),
-    ])
-    .block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title("Recent Signals"),
-    );
-    f.render_widget(activity, chunks[2]);
-}
-
-fn render_workflows(f: &mut ratatui::Frame, area: Rect) {
-    let columns = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
-        .split(area);
-    let personas = List::new([
-        ListItem::new("developer: git, build, test, run"),
-        ListItem::new("ai-developer: local/API models + agents"),
-        ListItem::new("cybersecurity: scope, scan, evidence"),
-        ListItem::new("devsecops: SAST, secrets, SBOM"),
-        ListItem::new("cloud: IaC and config review"),
-        ListItem::new("student: guided safe commands"),
-        ListItem::new("everything: full command-center mode"),
-    ])
-    .block(Block::default().borders(Borders::ALL).title("Profiles"));
-    f.render_widget(personas, columns[0]);
-
-    let commands = Paragraph::new("Start:\n  z profile list\n  z profile show developer\n  z profile apply ai-developer\n\nDaily:\n  z commands <query>\n  z docs <topic>\n  z project --check\n  z scan .\n\nReusable workflow idea:\n  z bundle plan devsecops\n  z ai privacy\n  z audit tail")
-        .wrap(Wrap { trim: true })
-        .block(Block::default().borders(Borders::ALL).title("Command Palette"));
-    f.render_widget(commands, columns[1]);
-}
-
-fn render_tools(f: &mut ratatui::Frame, area: Rect) {
-    let columns = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
-        .split(area);
-    let bundles = List::new([
-        ListItem::new("kali-top10: core security tools"),
-        ListItem::new("web: proxy, crawler, fuzzer, scanner"),
-        ListItem::new("recon: DNS, network, attack surface"),
-        ListItem::new("devsecops: SAST, secrets, SBOM"),
-        ListItem::new("reverse: binary and firmware analysis"),
-        ListItem::new("forensics: memory and incident triage"),
-    ])
-    .block(Block::default().borders(Borders::ALL).title("Bundles"));
-    f.render_widget(bundles, columns[0]);
-    let tools = Paragraph::new("36 curated registry entries\n\nSearch:\n  z search scanner\n  z search --category cybersecurity web\n\nPlan:\n  z bundle plan web\n  z bundle plan security-lab\n\nInstall after review:\n  z install nmap --approve")
-        .wrap(Wrap { trim: true })
-        .block(Block::default().borders(Borders::ALL).title("Tool Commands"));
-    f.render_widget(tools, columns[1]);
-}
-
-fn render_agents(f: &mut ratatui::Frame, area: Rect) {
-    let rows = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(7), Constraint::Min(8)].as_ref())
-        .split(area);
-    let summary = Paragraph::new(vec![
-        Line::from("Profiles: planner, operator, security-reviewer, documenter"),
-        Line::from("Controls: max iterations, tool allowlist, approval gates"),
-        Line::from("Trace: plan -> handoff -> tool call -> observation -> final"),
-    ])
-    .block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title("Agent Runtime"),
-    );
-    f.render_widget(summary, rows[0]);
-    let guardrails = List::new([
-        ListItem::new("Input guardrail: classify intent and required permissions"),
-        ListItem::new("Tool guardrail: deny destructive or unapproved host effects"),
-        ListItem::new("Output guardrail: require evidence and next-action clarity"),
-        ListItem::new("Handoff: specialist agents inherit trace context"),
-    ])
-    .block(Block::default().borders(Borders::ALL).title("Guardrails"));
-    f.render_widget(guardrails, rows[1]);
-}
-
-fn render_ai(f: &mut ratatui::Frame, area: Rect) {
-    let columns = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
-        .split(area);
-    let providers = List::new([
-        ListItem::new("ollama: local-first default"),
-        ListItem::new("qwen: DashScope-compatible API"),
-        ListItem::new("openai: OpenAI API"),
-        ListItem::new("openai-compatible: LM Studio, llama.cpp, routers"),
-    ])
-    .block(Block::default().borders(Borders::ALL).title("Providers"));
-    f.render_widget(providers, columns[0]);
-
-    let setup = Paragraph::new("Local Qwen:\n  ollama pull qwen2.5-coder:7b\n  ZENTRION_AI_PROVIDER=ollama\n  ZENTRION_AI_MODEL=qwen2.5-coder:7b\n\nAPI Qwen:\n  ZENTRION_AI_PROVIDER=qwen\n  DASHSCOPE_API_KEY=...\n\nCustom endpoint:\n  ZENTRION_AI_PROVIDER=openai-compatible\n  ZENTRION_AI_BASE_URL=http://127.0.0.1:8080/v1")
-        .wrap(Wrap { trim: true })
-        .block(Block::default().borders(Borders::ALL).title("Setup"));
-    f.render_widget(setup, columns[1]);
-}
-
-fn render_security(f: &mut ratatui::Frame, area: Rect) {
-    let rows = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(8), Constraint::Min(8)].as_ref())
-        .split(area);
-    let posture = Paragraph::new(vec![
-        Line::from("Identity -> policy -> capability -> approval -> broker -> audit"),
-        Line::from("Tool installs: checksum, trust gate, transactional store"),
-        Line::from("AI actions: guardrails and allowlists before host effects"),
-        Line::from("Storage: persistent audit and evidence by default"),
-    ])
-    .block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title("Security Model"),
-    );
-    f.render_widget(posture, rows[0]);
-
-    let commands = List::new([
-        ListItem::new("z policy validate"),
-        ListItem::new("z scan ."),
-        ListItem::new("z finding list"),
-        ListItem::new("z report latest"),
-        ListItem::new("z audit verify"),
-        ListItem::new("z ai privacy"),
-    ])
-    .block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title("Security Commands"),
-    );
-    f.render_widget(commands, rows[1]);
-}
-
-fn render_storage(f: &mut ratatui::Frame, area: Rect) {
-    let text = Paragraph::new("Durable by default:\n  config\n  audit\n  installed tools\n  sessions/history\n  agent and project memory\n  scan reports\n\nCommands:\n  z setup\n  z storage show\n  z storage doctor\n  z storage policy\n\nRetention:\n  survives upgrades\n  survives binary deletion\n  normal uninstall preserves user data\n  cache is disposable")
-        .wrap(Wrap { trim: true })
-        .block(Block::default().borders(Borders::ALL).title("Local Storage"));
-    f.render_widget(text, area);
-}
-
-fn render_docs(f: &mut ratatui::Frame, area: Rect) {
-    let docs = Paragraph::new("docs/getting-started.md\n  First 10 minutes\n\ndocs/terminal.md\n  Shell-first platform and TUI overview\n\ndocs/workflows.md\n  Persona profiles and workflow commands\n\ndocs/tools/README.md\n  Tool lifecycle, bundles and registry commands\n\ndocs/agents.md\n  Agent profiles, handoffs, guardrails and traces\n\ndocs/STORAGE.md\n  Durable local storage\n\ndocs/SECURITY_MODEL.md\n  Broker, policy, audit and local-first guarantees")
-        .wrap(Wrap { trim: true })
-        .block(Block::default().borders(Borders::ALL).title("Documentation Map"));
-    f.render_widget(docs, area);
-}
-
-fn render_sysmon(f: &mut ratatui::Frame, area: Rect, sys: &System) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(4), Constraint::Min(10)].as_ref())
-        .split(area);
-
-    let total_mem = sys.total_memory() as f64 / 1_048_576.0;
-    let used_mem = sys.used_memory() as f64 / 1_048_576.0;
-    let mem_pct = if total_mem > 0.0 { (used_mem / total_mem) * 100.0 } else { 0.0 };
-    
-    let cpu_usage = sys.global_cpu_info().cpu_usage();
-
-    let gauges = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
-        .split(chunks[0]);
-
-    let cpu_gauge = Gauge::default()
-        .block(Block::default().title("CPU Usage").borders(Borders::ALL))
-        .gauge_style(Style::default().fg(if cpu_usage > 80.0 { Color::Red } else { Color::Green }))
-        .percent(cpu_usage as u16);
-    f.render_widget(cpu_gauge, gauges[0]);
-
-    let mem_gauge = Gauge::default()
-        .block(Block::default().title(format!("Memory ({:.1}MB / {:.1}MB)", used_mem, total_mem)).borders(Borders::ALL))
-        .gauge_style(Style::default().fg(if mem_pct > 80.0 { Color::Red } else { Color::Cyan }))
-        .percent(mem_pct as u16);
-    f.render_widget(mem_gauge, gauges[1]);
-
-    let mut procs: Vec<_> = sys.processes().values().collect();
-    procs.sort_by(|a, b| b.cpu_usage().partial_cmp(&a.cpu_usage()).unwrap_or(std::cmp::Ordering::Equal));
-    
-    let mut items = vec![ListItem::new(Span::styled(format!("{:<8} | {:<25} | {:<10} | {:<10}", "PID", "NAME", "CPU %", "MEM (MB)"), Style::default().add_modifier(Modifier::BOLD)))];
-    
-    for p in procs.iter().take(20) {
-        let mem_mb = p.memory() as f64 / 1_048_576.0;
-        let line = format!("{:<8} | {:<25} | {:<10.1} | {:<10.1}", p.pid(), p.name(), p.cpu_usage(), mem_mb);
-        items.push(ListItem::new(line));
-    }
-    
-    let list = List::new(items)
-        .block(Block::default().borders(Borders::ALL).title("Top Processes (Alt+S to close)"));
-    f.render_widget(list, chunks[1]);
-}
-
-fn render_research(f: &mut ratatui::Frame, area: Rect) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(10), Constraint::Min(10)].as_ref())
-        .split(area);
-        
-    let input = Paragraph::new("> Search query: How does Landlock compare to Seccomp-BPF?\n\n[ Enter to Start Deep Research ]")
-        .block(Block::default().borders(Borders::ALL).title("Agentic Deep Research"));
-    f.render_widget(input, chunks[0]);
-    
-    let logs = List::new([
-        ListItem::new("[10:00:01] Starting Deep Research Agent..."),
-        ListItem::new("[10:00:02] Querying search engines for 'Landlock vs Seccomp-BPF'"),
-        ListItem::new("[10:00:05] Scraping 5 target URLs..."),
-        ListItem::new("[10:00:08] Synthesizing differences..."),
-        ListItem::new("[10:00:10] Generating markdown report (draft saved to ~/.zentrion/research/)"),
-    ]).block(Block::default().borders(Borders::ALL).title("Agent Activity"));
-    f.render_widget(logs, chunks[1]);
-}
-
-fn render_chat(f: &mut ratatui::Frame, area: Rect) {
-    let chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(70), Constraint::Percentage(30)].as_ref())
-        .split(area);
-        
-    let msg_chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Min(10), Constraint::Length(3)].as_ref())
-        .split(chunks[0]);
-        
-    let chat = List::new([
-        ListItem::new("ZENTRION_SYS: Listening on 0.0.0.0:7777 for UDP Broadcasts..."),
-        ListItem::new("ZENTRION_SYS: TCP Secure server bound to port 8080."),
-        ListItem::new("Alice [192.168.1.45]: Hey team, has anyone reviewed the new security policy?"),
-        ListItem::new("Bob [192.168.1.50]: Looking at it now. The explicit approval flag looks good."),
-    ]).block(Block::default().borders(Borders::ALL).title("Secure P2P LAN Chat (AES-256-GCM)"));
-    f.render_widget(chat, msg_chunks[0]);
-    
-    let input = Paragraph::new("> Send message to all peers...")
-        .block(Block::default().borders(Borders::ALL));
-    f.render_widget(input, msg_chunks[1]);
-    
-    let peers = List::new([
-        ListItem::new(Span::styled("Alice (192.168.1.45)", Style::default().fg(Color::Green))),
-        ListItem::new(Span::styled("Bob (192.168.1.50)", Style::default().fg(Color::Green))),
-        ListItem::new(Span::styled("Charlie (offline)", Style::default().fg(Color::DarkGray))),
-    ]).block(Block::default().borders(Borders::ALL).title("Discovered Peers"));
-    f.render_widget(peers, chunks[1]);
-}
-
-fn render_editor(f: &mut ratatui::Frame, area: Rect, content: &str, theme: Theme) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Min(10), Constraint::Length(1)].as_ref())
-        .split(area);
-        
-    let editor = Paragraph::new(content)
-        .block(Block::default().borders(Borders::ALL).title("Mini IDE (Alt+E to close)").style(Style::default().bg(theme.background).fg(theme.primary)));
-    f.render_widget(editor, chunks[0]);
-    
-    // Simulate AI overlay
-    let ai_status = Paragraph::new(Span::styled(" AI Auto-Complete Ready (Press Tab to accept)", Style::default().fg(theme.accent)))
-        .block(Block::default().style(Style::default().bg(theme.background)));
-    f.render_widget(ai_status, chunks[1]);
-}
-

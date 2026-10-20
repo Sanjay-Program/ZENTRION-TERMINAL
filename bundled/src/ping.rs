@@ -12,7 +12,13 @@ impl BundledTool for PingTool {
             return Err(anyhow!("Missing host:port argument"));
         }
         let addr = &args[0];
-        match TcpStream::connect(addr).await {
+        let attempt =
+            tokio::time::timeout(std::time::Duration::from_secs(5), TcpStream::connect(addr)).await;
+        let attempt = match attempt {
+            Ok(result) => result,
+            Err(_) => return Err(anyhow!("Timed out connecting to {}", addr)),
+        };
+        match attempt {
             Ok(_) => {
                 println!("Successfully connected to {}", addr);
                 Ok(())

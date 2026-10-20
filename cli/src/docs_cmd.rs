@@ -114,13 +114,13 @@ fn topic_path(topic: &str) -> Option<&'static str> {
 }
 
 fn read_doc(path: &Path) -> ZenResult<String> {
-    Ok(fs::read_to_string(path).map_err(|e| {
+    fs::read_to_string(path).map_err(|e| {
         ZenError::new(
             Area::Fs,
             5300,
             format!("failed to read {}: {e}", path.display()),
         )
-    })?)
+    })
 }
 
 fn print_topic(topic: &str) -> ZenResult<()> {

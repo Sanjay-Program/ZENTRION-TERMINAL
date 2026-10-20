@@ -13,3 +13,8 @@ ratatui = "0.30.2"
 tokio = "1"
 sysinfo = "0.30"
 p2p = { path = "../p2p" }
+portable-pty = "0.9"
+vt100 = "0.18"
+z-core = { version = "0.1.0", path = "../core" }
+ai = { version = "0.1.0", path = "../ai" }
+serde_yaml.workspace = true

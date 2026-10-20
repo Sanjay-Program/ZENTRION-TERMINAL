@@ -8,7 +8,10 @@ repository.workspace = true
 
 [dependencies]
 anyhow.workspace = true
-reqwest = "0.13.5"
+reqwest = { version = "0.13.5", features = ["json"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 tokio.workspace = true
+z-audit = { version = "0.1.0", path = "../audit" }
+z-core = { path = "../core" }
+z-identity = { version = "0.1.0", path = "../identity" }

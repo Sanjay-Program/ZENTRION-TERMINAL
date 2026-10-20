@@ -39,7 +39,13 @@ if [ -n "$ARCHIVE" ]; then
         echo "archive not found: $ARCHIVE" >&2; exit 1
     fi
     if [ -n "$EXPECTED_SHA" ]; then
-        ACTUAL=$(sha256sum "$ARCHIVE" | cut -d' ' -f1)
+        if command -v sha256sum >/dev/null 2>&1; then
+            ACTUAL=$(sha256sum "$ARCHIVE" | cut -d' ' -f1)
+        elif command -v shasum >/dev/null 2>&1; then
+            ACTUAL=$(shasum -a 256 "$ARCHIVE" | cut -d' ' -f1)
+        else
+            echo "no SHA-256 tool available" >&2; exit 1
+        fi
         if [ "$ACTUAL" != "$EXPECTED_SHA" ]; then
             echo "CHECKSUM MISMATCH — refusing to install." >&2
             echo "  expected: $EXPECTED_SHA" >&2
@@ -53,8 +59,8 @@ if [ -n "$ARCHIVE" ]; then
     TMP=$(mktemp -d)
     tar -xzf "$ARCHIVE" -C "$TMP"
     SRC=$(find "$TMP" -name z -type f -perm -u+x | head -n1)
-    DOC_SRC="$TMP/docs"
-    ROOT_SRC="$TMP"
+    DOC_SRC=$(find "$TMP" -maxdepth 3 -type d -name docs | head -n1)
+    ROOT_SRC=$(dirname "$(dirname "$SRC")")
 else
     if [ -x "target/release/z" ]; then
         SRC="target/release/z"
@@ -80,6 +86,8 @@ chmod 755 "$BIN_DIR/z"
 [ -n "$ROOT_SRC" ] && [ -f "$ROOT_SRC/CHANGELOG.md" ] && cp "$ROOT_SRC/CHANGELOG.md" "$APP_DATA_DIR/CHANGELOG.md"
 [ -n "$ROOT_SRC" ] && [ -f "$ROOT_SRC/FAQ.md" ] && cp "$ROOT_SRC/FAQ.md" "$APP_DATA_DIR/FAQ.md"
 [ -n "$TMP" ] && rm -rf "$TMP"
+
+"$BIN_DIR/z" setup >/dev/null 2>&1 || true
 
 echo "Installed: $BIN_DIR/z"
 echo "App files: $APP_DATA_DIR"

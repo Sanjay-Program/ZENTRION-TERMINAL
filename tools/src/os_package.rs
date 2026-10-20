@@ -35,13 +35,9 @@ impl OsPackageManager {
 
     fn command_exists(cmd: &str) -> bool {
         let status = if cfg!(target_os = "windows") {
-            Command::new("cmd")
-                .args(["/C", "where", cmd])
-                .output()
+            Command::new("cmd").args(["/C", "where", cmd]).output()
         } else {
-            Command::new("which")
-                .arg(cmd)
-                .output()
+            Command::new("which").arg(cmd).output()
         };
 
         match status {
@@ -57,15 +53,18 @@ impl OsPackageManager {
             OsPackageManager::Winget => ("winget", vec!["install", "--exact", "--id", package]),
             OsPackageManager::Choco => ("choco", vec!["install", "-y", package]),
             OsPackageManager::Unknown => {
-                anyhow::bail!("No supported OS package manager found to install '{}'", package);
+                anyhow::bail!(
+                    "No supported OS package manager found to install '{}'",
+                    package
+                );
             }
         };
 
         println!("Running native install: {} {}", cmd, args.join(" "));
-        let status = Command::new(cmd)
-            .args(&args)
-            .status()
-            .context(format!("Failed to run native package manager for {}", package))?;
+        let status = Command::new(cmd).args(&args).status().context(format!(
+            "Failed to run native package manager for {}",
+            package
+        ))?;
 
         if !status.success() {
             anyhow::bail!("Native package manager failed to install '{}'", package);

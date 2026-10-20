@@ -10,6 +10,26 @@ pub trait Provider: Send + Sync {
     async fn chat(&self, request: ChatRequest) -> anyhow::Result<ChatResponse>;
 }
 
+/// Sensible default model for the selected provider. `ZENTRION_AI_MODEL`
+/// always wins.
+pub fn default_model() -> String {
+    if let Ok(model) = env::var("ZENTRION_AI_MODEL") {
+        if !model.trim().is_empty() {
+            return model;
+        }
+    }
+    match env::var("ZENTRION_AI_PROVIDER")
+        .unwrap_or_else(|_| "ollama".into())
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "openai" => "gpt-4o-mini".into(),
+        "qwen" | "dashscope" => "qwen-plus".into(),
+        "openai-compatible" | "compatible" | "custom" => "default".into(),
+        _ => "qwen2.5-coder:7b".into(),
+    }
+}
+
 pub fn provider_from_env() -> anyhow::Result<Box<dyn Provider>> {
     let provider = env::var("ZENTRION_AI_PROVIDER")
         .unwrap_or_else(|_| "ollama".to_string())

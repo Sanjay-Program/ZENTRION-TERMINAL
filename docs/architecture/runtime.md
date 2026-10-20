@@ -34,8 +34,8 @@ actions through the same runtime surfaces as users.
 | `z bundle` | Curated development/security tool packs |
 | `z scan` | Native security assessment |
 | `z ai` | Gateway-mediated AI analysis |
-| `z ui` | Operator dashboard for runtime, tools, agents and docs |
-| SDK / daemon | Local IPC path for apps and IDE integrations |
+| `z ui` | PTY terminal multiplexer with dashboards, editor, copilot, chat and monitor |
+| SDK / daemon | Loopback IPC for apps and IDE integrations. Set `ZENTRION_DAEMON_TOKEN` to require a shared token; `z daemon stop` or `z lockdown` stops it. |
 
 ## Platform Paths
 

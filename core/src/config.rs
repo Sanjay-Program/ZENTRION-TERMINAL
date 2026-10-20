@@ -21,6 +21,9 @@ pub struct Config {
     pub telemetry_enabled: bool,
     #[serde(default)]
     pub default_project: Option<String>,
+    /// UI theme name (validated by the TUI; unknown names fall back safely).
+    #[serde(default = "default_theme")]
+    pub theme: String,
 }
 
 fn default_log_level() -> String {
@@ -31,12 +34,17 @@ fn default_telemetry() -> bool {
     false
 }
 
+fn default_theme() -> String {
+    "zentrion".to_string()
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
             log_level: default_log_level(),
             telemetry_enabled: default_telemetry(),
             default_project: None,
+            theme: default_theme(),
         }
     }
 }
@@ -56,6 +64,9 @@ impl Config {
         self.telemetry_enabled = other.telemetry_enabled || self.telemetry_enabled;
         if other.default_project.is_some() {
             self.default_project = other.default_project;
+        }
+        if !other.theme.trim().is_empty() {
+            self.theme = other.theme;
         }
     }
 
@@ -236,6 +247,24 @@ pub fn ensure_storage_layout() -> ZenResult<StorageLayout> {
         std::fs::create_dir_all(dir)?;
     }
 
+    // Durable Zentrion state (audit, sessions, memory) is private to the user.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        for dir in [
+            &layout.config_dir,
+            &layout.data_dir,
+            &layout.audit_dir,
+            &layout.sessions_dir,
+            &layout.history_dir,
+            &layout.memory_dir,
+            &layout.agents_dir,
+            &layout.scans_dir,
+        ] {
+            let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
+        }
+    }
+
     let manifest = layout.data_dir.join("storage.json");
     if !manifest.exists() {
         std::fs::write(&manifest, serde_json::to_string_pretty(&layout)?)?;
@@ -292,6 +321,7 @@ mod tests {
             log_level: "warn".into(),
             telemetry_enabled: false,
             default_project: None,
+            theme: "dracula".into(),
         };
         base.merge(higher);
         assert_eq!(base.log_level, "warn");

@@ -1,0 +1,27 @@
+apiVersion: zentrion.project/v1
+kind: Project
+metadata:
+  name: zentrion-terminal
+  version: 0.1.0
+  description: ""
+languages: []
+tools:
+  include: tools.yaml
+ai:
+  include: ai.yaml
+agents: []
+mcp:
+  servers: []
+permissions:
+  include: policy.yaml
+secrets:
+  include: secrets.yaml
+security:
+  policy: policy.yaml
+environment:
+  include: environment.yaml
+platforms:
+  required: []
+  optional: []
+zentrion:
+  min_version: "0.1.0"

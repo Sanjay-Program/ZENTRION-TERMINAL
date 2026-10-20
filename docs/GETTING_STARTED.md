@@ -1,60 +1,136 @@
 # Getting Started with ZENTRION TERMINAL
 
-Welcome to **ZENTRION TERMINAL**, the flagship product of [Zentrion Technologies](https://zentriontechnologies.com). 
-This guide is designed for **everyone**—whether you are a beginner taking your first steps in a terminal, or an expert Cybersecurity Engineer deploying autonomous AI agents.
+ZENTRION TERMINAL is a shell-first terminal for development, AI-assisted work
+and authorized security testing. This guide gets you from zero to a working
+terminal in a few minutes.
 
-## 1. What makes ZENTRION different?
-Traditional terminals (like Windows Command Prompt, macOS Terminal, or basic Linux shells) just send commands to your computer blindly. 
+## 1. What makes it different?
 
-ZENTRION is a **Next-Generation Terminal Environment**. It acts as a shield and an assistant:
-- **AI Copilot Built-In:** If you don't know a command, the built-in AI will help you figure it out.
-- **Secure By Default:** If a malicious script or an uncontrolled AI tries to delete your files or make dangerous network calls, ZENTRION intercepts it using our advanced Policy Engine.
-- **Universal Tooling:** You don't need to learn how to install complex developer or hacking tools. ZENTRION manages all of it for you.
+A normal terminal emulator shows you a shell. ZENTRION adds a local control
+plane around that shell:
 
-## 2. Installation
-If you haven't installed ZENTRION yet, please see our [Universal Installers Guide](../releases/README.md). We support Linux, macOS, and Windows.
+- **Real terminal panes.** Tabs and splits, each with a live PTY and scrollback.
+- **Policy-brokered execution.** Commands run through identity, policy,
+  capability and audit. Dangerous actions are denied until your project policy
+  explicitly allows them.
+- **A local tool registry.** Verified installs and curated bundles; the OS
+  package-manager fallback requires `--os-package`.
+- **AI without a fast path.** The copilot can suggest commands, but host
+  effects still go through the broker.
+- **Local-first by design.** No telemetry, no account, no network calls from
+  `z doctor`.
 
-## 3. Your First 5 Minutes
+## 2. Install
 
-Once installed, open your normal terminal and type:
-```sh
-z-cli ui
-```
-This drops you into the **ZENTRION Command Center** (the TUI).
-
-### The Essential Shortcuts (Desktop Style)
-We threw away the complex, hard-to-remember Linux shortcuts. Use ZENTRION just like a normal desktop app:
-
-*   **`Alt + S` (System Monitor):** Instantly see how much CPU and RAM your computer is using, and see what applications are slowing it down.
-*   **`Alt + E` (Mini IDE):** Never leave the terminal! Press this to open a text editor with AI Auto-Complete.
-*   **`Ctrl + P` (Command Palette):** Don't know what to type? Press `Ctrl+P` and type what you want to do (e.g., "scan my network", "secure my code").
-*   **`Alt + C` (AI Copilot):** Opens a chat window on the right side of your screen. Ask it anything about coding or security.
-*   **`0` (LAN Chat):** Switch to the Secure P2P LAN Chat tab. If any of your friends or coworkers are on the same Wi-Fi, you can chat with them instantly and securely without the internet.
-*   **`9` (Deep Research):** Tell ZENTRION to research a complex topic, and watch its AI agents scrape the web for you.
-*   **`Ctrl + Q` (Quit):** Exit safely.
-
-## 4. Basic Commands
-
-While the `z-cli ui` is the easiest way to use ZENTRION, you can also use it via the standard command line:
+Build from source:
 
 ```sh
-# Let ZENTRION check if your system is secure and ready
-z doctor
-
-# Download any tool in the world (VLC, Chrome, Nmap, Python)
-z install <tool-name>
-
-# Run a security scan on your current folder
-z scan .
-
-# Start an AI Agent to fix your code
-z agent run "find the bug in this project and patch it"
+git clone https://github.com/zentrion/terminal.git
+cd terminal
+cargo build --release
+install -m 755 target/release/z ~/.local/bin/z
 ```
 
-## 5. Where to go next?
-*   **Non-technical users:** Just press `Alt+C` in the UI and let the Copilot guide you!
-*   **Developers & DevOps:** Read the [1000 Commands Reference](1000-COMMANDS-REFERENCE.md).
-*   **Cybersecurity Professionals:** Read our [Security Model](SECURITY_MODEL.md) and learn about the local-first execution sandbox.
+Or use the source-building installers in [`releases/`](../releases/README.md).
+Linux x64 release archives can be produced with `./scripts/package.sh`.
+macOS/Windows release artifacts are not built in this environment — build from
+source on those platforms.
+
+## 3. Your first five minutes
+
+```sh
+z setup          # create config/data directories
+z doctor         # offline health check
+z ui             # open the terminal
+```
+
+You start in a real shell. Type commands exactly as you would in any terminal.
+
+### Keys
+
+| Key | Action |
+|---|---|
+| `F2` | Command palette |
+| `F3` | Mini IDE (`Ctrl+S` save, `Ctrl+O` open) |
+| `F4` | AI copilot |
+| `F5` | System monitor |
+| `F6` | Encrypted LAN chat |
+| `F7` | New tab |
+| `F8` | Split pane |
+| `F9` | Close pane/tab |
+| `F10` | Quit |
+| `Alt+V` | Toggle terminal / dashboard |
+| `Alt+H` | Dashboard home |
+| `Alt+1..9` | Switch tab (or dashboard view) |
+| `Alt+O` | Next pane |
+| `Shift+PgUp/PgDn` | Scroll terminal history |
+| `Tab` / `Shift+Tab` | Next/previous dashboard view |
+
+`Ctrl+P`, `Ctrl+Q`, `Ctrl+D` and friends are **not** stolen from the shell.
+
+## 4. Everyday commands
+
+```sh
+z status                    # runtime, project, policy, audit
+z code status               # detect the toolchain
+z code test                 # run through the broker
+z code allow                # explicitly allow the detected toolchain
+z security scan .           # credentials + risky code + dependencies
+z security posture          # policy + audit + latest scan
+z scan .                    # native engine scan
+z finding list
+z report latest
+z network dns example.com --allow
+z cloud scan .              # static IaC review
+z bundle list
+z install nmap
+z run nmap --version
+```
+
+If a brokered command is denied, the error names the policy field to change.
+Inside a project, `z init` creates `.zentrion/` and `z code allow` grants the
+detected compiler/test toolchain. Review the generated policy before committing.
+
+## 5. AI setup
+
+```sh
+# Local Ollama (default)
+export ZENTRION_AI_PROVIDER=ollama
+export ZENTRION_AI_MODEL=qwen2.5-coder:7b
+
+# Or OpenAI
+export ZENTRION_AI_PROVIDER=openai
+export OPENAI_API_KEY="sk-..."
+```
+
+Then use `F4` in the UI, or:
+
+```sh
+z ai ask "explain this error"
+z ai status
+z ai auto "plan a safe review of this repository"
+```
+
+The gateway redacts credentials and PII before outbound calls. AI output is
+advice; it never executes commands.
+
+## 6. LAN chat
+
+```sh
+export ZENTRION_P2P_KEY='a long shared passphrase'
+z ui   # press F6
+```
+
+Share the passphrase out of band. Chat is AES-256-GCM encrypted, peer-to-peer,
+with no server or account. Anyone with the passphrase can read and send.
+
+## 7. Where to go next
+
+- [Terminal and UI reference](terminal.md)
+- [Security model](SECURITY_MODEL.md)
+- [Tools and registry](tools/README.md)
+- [Command reference](1000-COMMANDS-REFERENCE.md)
+- [Documentation index](DOCUMENTATION_INDEX.md)
 
 ---
 *Powered by [Zentrion Technologies](https://zentriontechnologies.com).*

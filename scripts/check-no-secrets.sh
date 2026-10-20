@@ -8,17 +8,18 @@ set -eu
 
 # Build the patterns from fragments so this file does not contain the literal
 # strings it searches for (avoids a self-match false positive).
-P_PRIVKEY='PRIVATE'' KEY'
+P_PRIVKEY='BEGIN''[A-Z ]*PRIVATE'' KEY'
 P_AWS='AKIA''[0-9A-Z]{16}'
 P_GHP='ghp_''[A-Za-z0-9]{36}'
 P_OAI='sk-''[A-Za-z0-9]{20,}'
-P_PEM='-----''BEGIN'
-PATTERNS="${P_PRIVKEY}|${P_AWS}|${P_GHP}|${P_OAI}|${P_PEM}"
+PATTERNS="${P_PRIVKEY}|${P_AWS}|${P_GHP}|${P_OAI}"
 
 if grep -rInE "$PATTERNS" \
     --include='*.rs' --include='*.toml' --include='*.yaml' --include='*.yml' \
     --include='*.json' --include='*.sh' \
-    --exclude-dir=target --exclude-dir=.git . ; then
+    --exclude-dir=target --exclude-dir=.git --exclude-dir=.cargo-home \
+    --exclude-dir=.kilo --exclude-dir=.pydeps --exclude-dir=.zt-test \
+    --exclude-dir=dist . ; then
     echo "ERROR: possible secret material found in source. Review the matches above."
     exit 1
 fi

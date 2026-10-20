@@ -14,7 +14,7 @@ fn z_bin() -> PathBuf {
     if p.ends_with("deps") {
         p.pop();
     }
-    p.join("z")
+    p.join(if cfg!(windows) { "z.exe" } else { "z" })
 }
 
 fn repo_root() -> PathBuf {
@@ -72,7 +72,11 @@ impl Env {
             .iter()
             .map(|t| format!("    - \"{t}\"\n"))
             .collect::<String>();
-        text.push_str(&format!("tools:\n  allow:\n{allow}"));
+        if text.contains("tools:\n  allow: []") {
+            text = text.replace("tools:\n  allow: []", &format!("tools:\n  allow:\n{allow}"));
+        } else {
+            text.push_str(&format!("tools:\n  allow:\n{allow}"));
+        }
         std::fs::write(&pol, text).unwrap();
     }
 

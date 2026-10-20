@@ -9,6 +9,7 @@ license.workspace = true
 z-core = { path = "../core" }
 serde.workspace = true
 serde_json.workspace = true
+regex = "1.10"
 
 [features]
 # Network transport for the registry client and artifact downloads. Off by

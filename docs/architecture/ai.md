@@ -1,63 +1,65 @@
 # AI Architecture
 
-The AI layer is a gateway-mediated subsystem. It can call local or remote
-models, but it cannot bypass runtime security.
+The AI layer is gateway-mediated. It can call local or remote models, but it
+cannot bypass runtime security.
 
 ## Goals
 
-- Local-first by default.
-- Provider-neutral: Ollama, OpenAI, Qwen/DashScope-compatible APIs and custom
-  OpenAI-compatible endpoints.
+- Local-first by default (Ollama).
+- Provider-neutral: Ollama, OpenAI, Qwen/DashScope and any OpenAI-compatible
+  endpoint.
 - No secrets in project files.
-- One gateway for CLI, agents, SDK clients and future UI.
-- Model output is advice or a request; host effects still require brokered
-  tool execution.
+- One gateway for CLI, copilot, agents and research.
+- Model output is advice; host effects still require brokered tool execution.
 
 ## Components
 
 | Component | Crate | Responsibility |
 |---|---|---|
 | Chat models | `ai::models` | Common request/response structs |
-| Gateway | `ai::gateway` | Redaction, policy checks and provider dispatch |
-| Providers | `ai::provider` | Ollama, OpenAI and OpenAI-compatible transports |
-| Agent runtime | `agents` | Profiles, handoffs, tool guardrails and traces |
+| Gateway | `ai::gateway` | Redaction and provider dispatch |
+| Providers | `ai::provider` | Ollama, OpenAI and compatible transports |
+| Agent runtime | `agents` | Profiles, guardrails and traces |
 | MCP gateway | `mcp` | External tool/context bridge |
-| AI BOM | `devsec` | AI component inventory for supply-chain review |
+| AI BOM | `devsec` | Project-derived AI component inventory |
 
-## Provider Selection
-
-`provider_from_env()` builds the runtime provider:
+## Provider selection
 
 | Provider | Required setup |
 |---|---|
-| `ollama` | `ZENTRION_AI_PROVIDER=ollama`, optional `ZENTRION_AI_BASE_URL` or `OLLAMA_HOST` |
-| `openai` | `ZENTRION_AI_PROVIDER=openai`, `OPENAI_API_KEY` or `ZENTRION_AI_API_KEY` |
-| `qwen` | `ZENTRION_AI_PROVIDER=qwen`, `DASHSCOPE_API_KEY` or `ZENTRION_AI_API_KEY` |
-| `openai-compatible` | `ZENTRION_AI_BASE_URL`, optional API key for local endpoints |
+| `ollama` (default) | optional `ZENTRION_AI_BASE_URL` / `OLLAMA_HOST` |
+| `openai` | `OPENAI_API_KEY` or `ZENTRION_AI_API_KEY` |
+| `qwen` | `DASHSCOPE_API_KEY` or `ZENTRION_AI_API_KEY` |
+| `openai-compatible` | `ZENTRION_AI_BASE_URL`, optional key |
 
-For OpenAI-compatible providers, configure the `/v1` root, not the full
-`/v1/chat/completions` path. The provider appends `/chat/completions`.
+Configure the `/v1` root for compatible providers; `/chat/completions` is
+appended automatically.
 
-## Safety Pipeline
+## Safety pipeline
 
 ```text
-User / agent goal
-  -> prompt and context assembly
-  -> gateway redaction
-  -> AI policy check
-  -> provider call
-  -> response
-  -> agent/tool guardrails
-  -> execution broker for any host effect
-  -> audit event
+prompt -> gateway redaction -> provider call -> advice
+                                      |
+                              tool request? -> execution broker -> audit
 ```
 
-The model never receives implicit filesystem, process, network or secret
-permissions. Tool calls remain structured platform requests.
+## Redaction
 
-## Current Limits
+Before any outbound request, the gateway scrubs:
 
-- Streaming is not yet exposed through the common gateway.
-- Responses API support is not yet modeled separately from Chat Completions.
-- Provider credentials should come from environment variables until the secrets
-  UX is completed.
+- AWS access keys (`AKIA…`, `ASIA…`)
+- private key blocks
+- GitHub tokens
+- OpenAI-style keys
+- JWTs
+- bearer authorization headers
+- email addresses
+
+Patterns are compiled once and covered by tests.
+
+## Current limits
+
+- No streaming through the gateway.
+- No prompt-injection classifier; model output is advisory and cannot execute.
+- Credentials come from the environment until a full secrets UX lands.
+- Research is model-synthesized, without web crawling.

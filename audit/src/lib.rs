@@ -81,6 +81,15 @@ impl AuditLog {
         })
     }
 
+    /// Restrict the audit file to the current user (Unix).
+    fn secure_permissions(&self) {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(&self.path, fs::Permissions::from_mode(0o600));
+        }
+    }
+
     /// Append an event, chaining it to the previous hash.
     ///
     /// The wide signature mirrors the audit event schema (25-AUDIT); callers
@@ -117,6 +126,7 @@ impl AuditLog {
         };
         ev.hash = compute_hash(&self.last_hash, &ev);
         self.last_hash = ev.hash.clone();
+        self.secure_permissions();
 
         let line = serde_json::to_string(&ev)?;
         let mut f = OpenOptions::new()
@@ -124,6 +134,8 @@ impl AuditLog {
             .append(true)
             .open(&self.path)?;
         writeln!(f, "{line}")?;
+        f.sync_all().ok();
+        self.secure_permissions();
         Ok(ev)
     }
 

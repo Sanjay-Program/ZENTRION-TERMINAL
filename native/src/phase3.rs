@@ -113,6 +113,12 @@ pub struct EngineRegistry {
     engines: BTreeMap<String, Box<dyn Engine>>,
 }
 
+impl Default for EngineRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl EngineRegistry {
     pub fn new() -> Self {
         let mut engines: BTreeMap<String, Box<dyn Engine>> = BTreeMap::new();
@@ -205,6 +211,7 @@ fn asset(kind: AssetKind, value: impl Into<String>) -> Asset {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn finding(
     title: impl Into<String>,
     severity: Severity,
@@ -280,6 +287,12 @@ pub struct ScanOrchestrator {
     registry: EngineRegistry,
 }
 
+impl Default for ScanOrchestrator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ScanOrchestrator {
     pub fn new() -> Self {
         Self {
@@ -296,18 +309,16 @@ impl ScanOrchestrator {
         let mut findings = Vec::new();
         let mut engines = Vec::new();
 
-        if profile.engines().contains(&"url") {
-            if self.registry.info("url").is_some() {
-                engines.push("url".to_string());
-                let req = EngineRequest {
-                    engine: "url".into(),
-                    operation: "analyze".into(),
-                    input: json!({"target": target}),
-                };
-                let result = self.registry.execute(&req)?;
-                assets.extend(extract_assets(&result.data));
-                findings.extend(result.findings);
-            }
+        if profile.engines().contains(&"url") && self.registry.info("url").is_some() {
+            engines.push("url".to_string());
+            let req = EngineRequest {
+                engine: "url".into(),
+                operation: "analyze".into(),
+                input: json!({"target": target}),
+            };
+            let result = self.registry.execute(&req)?;
+            assets.extend(extract_assets(&result.data));
+            findings.extend(result.findings);
         }
 
         for engine in profile.engines() {
@@ -947,6 +958,148 @@ impl Engine for SystemEngine {
 
 struct SecretsEngine;
 
+/// Real credential-pattern matching (not just a marker substring). Returns
+/// findings with file/line evidence and redacts the matched value.
+fn secret_findings(text: &str, target: &str) -> Vec<Finding> {
+    use regex::Regex;
+    use std::sync::LazyLock;
+    static SIMPLE: LazyLock<Vec<(Regex, Severity, &'static str)>> = LazyLock::new(|| {
+        vec![
+            (
+                Regex::new(r"AKIA[0-9A-Z]{16}").expect("pattern"),
+                Severity::High,
+                "AWS access key",
+            ),
+            (
+                Regex::new(r"ASIA[0-9A-Z]{16}").expect("pattern"),
+                Severity::High,
+                "AWS temporary access key",
+            ),
+            (
+                Regex::new(r"gh[pousr]_[A-Za-z0-9]{20,}").expect("pattern"),
+                Severity::High,
+                "GitHub token",
+            ),
+            (
+                Regex::new(r"sk-(?:proj-)?[A-Za-z0-9_-]{24,}").expect("pattern"),
+                Severity::High,
+                "OpenAI-style secret key",
+            ),
+            (
+                Regex::new(r"xox[baprs]-[0-9A-Za-z-]{10,}").expect("pattern"),
+                Severity::High,
+                "Slack token",
+            ),
+            (
+                Regex::new(r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}")
+                    .expect("pattern"),
+                Severity::Medium,
+                "JSON Web Token",
+            ),
+            (
+                Regex::new(
+                    r#"(?i)(?:password|passwd|secret|api[_-]?key|access[_-]?token)\s*[:=]\s*["'][^"'\s]{8,}["']"#,
+                )
+                .expect("pattern"),
+                Severity::Medium,
+                "hardcoded credential assignment",
+            ),
+        ]
+    });
+
+    let mut findings = Vec::new();
+    let mut seen = BTreeMap::<String, ()>::new();
+    let asset_value = if target.is_empty() {
+        None
+    } else {
+        Some(target.to_string())
+    };
+
+    for (line_no, line) in text.lines().enumerate() {
+        for (regex, severity, title) in SIMPLE.iter() {
+            for matched in regex.find_iter(line) {
+                let value = matched.as_str();
+                if is_placeholder_secret(value) {
+                    continue;
+                }
+                let key = format!("{}:{}:{}", line_no, title, value);
+                if seen.insert(key, ()).is_some() {
+                    continue;
+                }
+                findings.push(finding(
+                    *title,
+                    *severity,
+                    0.8,
+                    asset_value.clone().map(|value| asset(AssetKind::File, value)),
+                    vec![format!(
+                        "line {}: {}",
+                        line_no + 1,
+                        line.replace(value, &mask_secret(value))
+                    )],
+                    "A credential-like value was detected. Treat it as compromised until proven otherwise.",
+                    "Remove the value from source control, rotate it, and load it from a secret store.",
+                    "secrets",
+                ));
+            }
+        }
+    }
+
+    // Multi-line private key blocks: only flag if the block is long enough to
+    // be a real key, not a short documentation/test fixture.
+    let mut key_regex_findings = false;
+    if let Some(start) = text.find("-----BEGIN") {
+        if text[start..].contains("PRIVATE KEY-----") {
+            if let Some(end_rel) = text[start..].find("-----END") {
+                let block = &text[start..start + end_rel + 20.min(text.len() - start - end_rel)];
+                if block.len() > 200 {
+                    key_regex_findings = true;
+                }
+            }
+        }
+    }
+    if key_regex_findings {
+        let line_no = text
+            .lines()
+            .position(|line| line.contains("-----BEGIN"))
+            .map(|line| line + 1)
+            .unwrap_or(1);
+        findings.push(finding(
+            "private key block",
+            Severity::Critical,
+            0.9,
+            asset_value.map(|value| asset(AssetKind::File, value)),
+            vec![format!("line {line_no}: private key material present")],
+            "A multi-line private key was found in a scanned file.",
+            "Remove and rotate the key; never commit private keys.",
+            "secrets",
+        ));
+    }
+
+    findings
+}
+
+fn is_placeholder_secret(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    lower.contains("example")
+        || lower.contains("abcdefghijklmnop")
+        || lower.contains("abcdefghijklmnopqrstuvwxyz")
+        || lower.contains("0123456789")
+        || lower.contains("dummy")
+        || lower.contains("placeholder")
+        || lower.contains("correct-horse")
+        || lower.contains("super_secret")
+        || lower.contains("test_key")
+        || lower.contains("sentinel")
+        || lower.contains("my_secret_value")
+}
+
+fn mask_secret(value: &str) -> String {
+    if value.len() <= 8 {
+        return "********".into();
+    }
+    format!("{}…{}", &value[..4], &value[value.len() - 4..])
+}
+
 impl Engine for SecretsEngine {
     fn name(&self) -> &'static str {
         "secrets"
@@ -956,35 +1109,13 @@ impl Engine for SecretsEngine {
             operations: vec!["scan".into()],
             native: true,
             supported: true,
-            description: "pattern-based secret detection".into(),
+            description: "pattern-based credential detection with file/line evidence".into(),
         }
     }
     fn execute(&self, request: &EngineRequest) -> ZenResult<EngineResult> {
         let text = as_string(request.input.get("text")).unwrap_or_default();
-        let mut findings = Vec::new();
-        let marker_aws = ["AK", "IA"].concat();
-        let marker_key = ["BEGIN", " PRIVATE", " KEY"].concat();
-        let marker_password = ["password", "="].concat();
-        let marker_token = ["token", "="].concat();
-        for marker in [
-            marker_aws.as_str(),
-            marker_key.as_str(),
-            marker_password.as_str(),
-            marker_token.as_str(),
-        ] {
-            if text.contains(marker) {
-                findings.push(finding(
-                    "Potential secret marker",
-                    Severity::High,
-                    0.65,
-                    None,
-                    vec![marker.to_string()],
-                    "A common secret marker was detected in the provided text.",
-                    "Redact the secret and rotate it if it is real.",
-                    "secrets",
-                ));
-            }
-        }
+        let target = as_string(request.input.get("target")).unwrap_or_default();
+        let findings = secret_findings(&text, &target);
         Ok(EngineResult {
             status: "success".into(),
             engine: self.name().into(),
@@ -1243,10 +1374,184 @@ pub fn load_report() -> ZenResult<ScanReport> {
 }
 
 pub fn analyse_target(target: &str, profile: ScanProfile) -> ZenResult<ScanReport> {
-    let orchestrator = ScanOrchestrator::new();
-    let report = orchestrator.scan(target, profile)?;
+    let report = if std::path::Path::new(target).exists() {
+        scan_local_path(target, profile)?
+    } else {
+        ScanOrchestrator::new().scan(target, profile)?
+    };
     let _ = save_report(&report);
     Ok(report)
+}
+
+const LOCAL_SKIP: &[&str] = &[
+    ".git",
+    "target",
+    "node_modules",
+    ".cargo-home",
+    ".pydeps",
+    ".kilo",
+    "dist",
+    "build",
+    ".venv",
+    "venv",
+    ".zt-test",
+    ".next",
+    "vendor",
+];
+
+fn local_files(root: &std::path::Path, max_files: usize, max_bytes: u64) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    let mut visited = 0usize;
+    while let Some(dir) = stack.pop() {
+        visited += 1;
+        if visited > 10_000 || files.len() >= max_files {
+            break;
+        }
+        let Ok(entries) = stdfs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().to_string();
+            // Do not follow symlinks: a scan must not escape the target tree.
+            if entry
+                .file_type()
+                .map(|kind| kind.is_symlink())
+                .unwrap_or(false)
+            {
+                continue;
+            }
+            if path.is_dir() {
+                if !LOCAL_SKIP.contains(&name.as_str()) {
+                    stack.push(path);
+                }
+            } else if files.len() < max_files {
+                let size = entry.metadata().map(|m| m.len()).unwrap_or(u64::MAX);
+                if size <= max_bytes {
+                    files.push(path);
+                }
+            }
+        }
+    }
+    files
+}
+
+fn scan_local_path(target: &str, profile: ScanProfile) -> ZenResult<ScanReport> {
+    let root = PathBuf::from(target);
+    let files = local_files(&root, 2000, 1024 * 1024);
+    let orchestrator = ScanOrchestrator::new();
+    let registry = orchestrator.registry();
+    let mut findings = Vec::new();
+    let mut assets = Vec::new();
+    let mut engines = vec!["filesystem".to_string(), "secrets".to_string()];
+
+    let source_ext = |path: &std::path::Path| {
+        matches!(
+            path.extension().and_then(|e| e.to_str()).unwrap_or(""),
+            "rs" | "py"
+                | "js"
+                | "jsx"
+                | "ts"
+                | "tsx"
+                | "go"
+                | "c"
+                | "cc"
+                | "cpp"
+                | "h"
+                | "hpp"
+                | "java"
+                | "rb"
+                | "php"
+                | "sh"
+                | "bash"
+                | "zsh"
+        )
+    };
+
+    for path in &files {
+        let display = path.display().to_string();
+        assets.push(asset(AssetKind::File, display.clone()));
+
+        if !source_ext(path) && path.file_name().and_then(|n| n.to_str()) != Some("Cargo.toml") {
+            // Still scan small text/config files for embedded credentials.
+            if path.metadata().map(|m| m.len()).unwrap_or(0) > 512 * 1024 {
+                continue;
+            }
+        }
+
+        let Ok(bytes) = stdfs::read(path) else {
+            continue;
+        };
+        if bytes.contains(&0) {
+            continue;
+        }
+        let text = String::from_utf8_lossy(&bytes);
+
+        if let Ok(result) = registry.execute(&EngineRequest {
+            engine: "secrets".into(),
+            operation: "scan".into(),
+            input: json!({"text": text, "target": display}),
+        }) {
+            findings.extend(result.findings);
+        }
+
+        if source_ext(path) {
+            if !engines.iter().any(|e| e == "code") {
+                engines.push("code".to_string());
+            }
+            if let Ok(result) = registry.execute(&EngineRequest {
+                engine: "code".into(),
+                operation: "analyze".into(),
+                input: json!({"target": display}),
+            }) {
+                findings.extend(result.findings);
+            }
+        }
+
+        if path.file_name().and_then(|n| n.to_str()) == Some("Cargo.toml") {
+            if !engines.iter().any(|e| e == "dependencies") {
+                engines.push("dependencies".to_string());
+            }
+            if let Ok(result) = registry.execute(&EngineRequest {
+                engine: "dependencies".into(),
+                operation: "analyze".into(),
+                input: json!({"target": display}),
+            }) {
+                let deps = result
+                    .data
+                    .get("dependencies")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
+                for dep in deps {
+                    if let Some(name) = dep.as_str() {
+                        assets.push(asset(AssetKind::Package, name));
+                    }
+                }
+            }
+        }
+    }
+
+    findings = dedupe_findings(findings);
+    assets.sort_by(|a, b| a.id.cmp(&b.id));
+    assets.dedup_by(|a, b| a.id == b.id);
+    let summary = format!(
+        "{} (profile {:?}, {} files, {} assets)",
+        summarize_findings(&findings),
+        profile,
+        files.len(),
+        assets.len()
+    );
+    Ok(ScanReport {
+        target: target.to_string(),
+        profile,
+        timestamp: now_millis(),
+        assets,
+        findings,
+        engines,
+        summary,
+    })
 }
 
 pub fn render_markdown(report: &ScanReport) -> String {
@@ -1257,10 +1562,18 @@ pub fn render_markdown(report: &ScanReport) -> String {
     out.push_str(&format!("Summary: {}\n\n", report.summary));
     out.push_str("Findings:\n");
     for finding in &report.findings {
+        let location = finding
+            .asset
+            .as_ref()
+            .map(|asset| format!(" [{}]", asset.value))
+            .unwrap_or_default();
         out.push_str(&format!(
-            "[{:?}] {} — {}\n",
-            finding.severity, finding.title, finding.description
+            "[{:?}] {} — {}{}\n",
+            finding.severity, finding.title, finding.description, location
         ));
+        if let Some(evidence) = finding.evidence.first() {
+            out.push_str(&format!("    evidence: {evidence}\n"));
+        }
     }
     if report.findings.is_empty() {
         out.push_str("(none)\n");
@@ -1319,6 +1632,56 @@ mod tests {
             })
             .unwrap();
         assert!(!result.findings.is_empty());
+    }
+
+    #[test]
+    fn local_scan_finds_planted_credentials_with_file_evidence() {
+        let dir = std::env::temp_dir().join(format!(
+            "zentrion-scan-{}-{}",
+            std::process::id(),
+            now_millis()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let key = concat!("AKIA", "Q7W2", "E9R4", "T1Y6", "U3I8");
+        std::fs::write(
+            dir.join("config.env"),
+            format!("AWS_ACCESS_KEY_ID={key}\nNORMAL=value\n"),
+        )
+        .unwrap();
+        std::fs::write(dir.join("app.rs"), "fn main() {}\n").unwrap();
+
+        let report = scan_local_path(dir.to_str().unwrap(), ScanProfile::Standard).unwrap();
+        let finding = report
+            .findings
+            .iter()
+            .find(|f| f.title == "AWS access key")
+            .expect("planted key should be found");
+        assert!(finding
+            .asset
+            .as_ref()
+            .map(|asset| asset.value.ends_with("config.env"))
+            .unwrap_or(false));
+        assert!(!finding.evidence.join(" ").contains(key));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn local_scan_does_not_follow_symlinks() {
+        let dir = std::env::temp_dir().join(format!(
+            "zentrion-scan-link-{}-{}",
+            std::process::id(),
+            now_millis()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("app.rs"), "fn main() {}\n").unwrap();
+        let _ = std::os::unix::fs::symlink("/etc", dir.join("outside"));
+        let report = scan_local_path(dir.to_str().unwrap(), ScanProfile::Standard).unwrap();
+        assert!(!report
+            .assets
+            .iter()
+            .any(|asset| asset.value.contains("/etc/")));
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

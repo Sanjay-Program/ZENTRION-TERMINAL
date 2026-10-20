@@ -197,23 +197,17 @@ impl SandboxLevel {
 /// This is a *capability report*, not a promise that a sandbox is wired up.
 /// Phase 2 reports what the platform offers; enforcement is Phase 3.
 pub fn available_sandbox_level() -> SandboxLevel {
-    #[cfg(target_os = "linux")]
+    // Honest capability report. Brokered children currently receive:
+    //   * no_new_privs + non-dumpable + PDEATHSIG
+    //   * RLIMIT_CORE=0, RLIMIT_CPU bounded by the request timeout, umask 077
+    // There is no Landlock/seccomp filesystem or syscall confinement yet, and
+    // no network namespace, so reporting anything above ResourceLimits would
+    // overstate the guarantee.
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
-        // Landlock (fs) + seccomp (syscalls) + cgroup v2 (resources) + namespaces.
-        SandboxLevel::Maximum
-    }
-    #[cfg(target_os = "macos")]
-    {
-        // Seatbelt profiles + rlimits. No syscall filter.
-        SandboxLevel::FilesystemNetwork
-    }
-    #[cfg(target_os = "windows")]
-    {
-        // Job Objects + restricted tokens. No syscall/filesystem sandbox for
-        // arbitrary child processes — reported honestly.
         SandboxLevel::ResourceLimits
     }
-    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     {
         SandboxLevel::None
     }
@@ -270,11 +264,11 @@ mod tests {
         let lvl = available_sandbox_level();
         // We only assert the value matches the compile target, so the report
         // can never drift from reality.
-        #[cfg(target_os = "linux")]
-        assert_eq!(lvl, SandboxLevel::Maximum);
-        #[cfg(target_os = "macos")]
-        assert_eq!(lvl, SandboxLevel::FilesystemNetwork);
-        #[cfg(target_os = "windows")]
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         assert_eq!(lvl, SandboxLevel::ResourceLimits);
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+        assert_eq!(lvl, SandboxLevel::None);
+        // Never claim filesystem or syscall confinement that is not wired up.
+        assert!(lvl <= SandboxLevel::ResourceLimits);
     }
 }

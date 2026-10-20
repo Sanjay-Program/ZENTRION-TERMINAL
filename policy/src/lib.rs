@@ -26,6 +26,39 @@ mod tests {
     }
 
     #[test]
+    fn process_grant_is_exact_not_prefix() {
+        let mut policy = Policy::default();
+        policy.process.spawn = vec!["cargo".to_string()];
+        let allow = evaluate(
+            &policy,
+            &PolicyRequest {
+                actor: "test".into(),
+                action: "process.spawn".into(),
+                resource: "cargo".into(),
+            },
+        );
+        assert_eq!(allow.decision, Decision::Allow);
+        let path_allow = evaluate(
+            &policy,
+            &PolicyRequest {
+                actor: "test".into(),
+                action: "process.spawn".into(),
+                resource: "/usr/bin/cargo".into(),
+            },
+        );
+        assert_eq!(path_allow.decision, Decision::Allow);
+        let evil = evaluate(
+            &policy,
+            &PolicyRequest {
+                actor: "test".into(),
+                action: "process.spawn".into(),
+                resource: "cargo-evil".into(),
+            },
+        );
+        assert_eq!(evil.decision, Decision::Deny);
+    }
+
+    #[test]
     fn deny_by_default_for_unknown_action() {
         let d = evaluate(
             &base(),

@@ -116,7 +116,7 @@ fn os_version() -> String {
             .ok()
             .and_then(|p| {
                 p.lines()
-                    .find_map(|l| l.contains("ProductVersion").then(|| String::new()))
+                    .find_map(|l| l.contains("ProductVersion").then(String::new))
                     .map(|_| String::new())
             })
             .map(|_| "macos".to_string())
