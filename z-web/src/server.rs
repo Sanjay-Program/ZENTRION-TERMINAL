@@ -193,6 +193,23 @@ async fn handle(mut stream: TcpStream, state: Arc<ServerState>) -> std::io::Resu
             break position;
         }
     };
+    // The body may arrive in later TCP segments than the headers. Read until
+    // the declared Content-Length is present, rather than assuming one read.
+    let body_start = header_end + 4;
+    let content_length = match content_length_from_headers(&buffer[..header_end]) {
+        Ok(length) => length,
+        Err(message) => return respond(&mut stream, 400, "text/plain", &message).await,
+    };
+    while buffer.len() < body_start + content_length {
+        let n = stream.read(&mut chunk).await?;
+        if n == 0 {
+            return respond(&mut stream, 400, "text/plain", "incomplete body").await;
+        }
+        buffer.extend_from_slice(&chunk[..n]);
+        if buffer.len() > MAX_REQUEST {
+            return respond(&mut stream, 413, "text/plain", "request too large").await;
+        }
+    }
     let request = match Request::parse(&buffer, header_end) {
         Ok(request) => request,
         Err(message) => {
@@ -206,6 +223,27 @@ async fn handle(mut stream: TcpStream, state: Arc<ServerState>) -> std::io::Resu
         }
         Err((status, message)) => respond(&mut stream, status, "text/plain", &message).await,
     }
+}
+
+/// Parse the Content-Length header from an already-read header block.
+fn content_length_from_headers(head: &[u8]) -> Result<usize, String> {
+    let head = std::str::from_utf8(head).map_err(|_| "request headers are not UTF-8".to_string())?;
+    let mut length = 0usize;
+    for line in head.split("\r\n").skip(1) {
+        let Some((name, value)) = line.split_once(':') else {
+            continue;
+        };
+        if name.eq_ignore_ascii_case("content-length") {
+            length = value
+                .trim()
+                .parse()
+                .map_err(|_| "invalid Content-Length".to_string())?;
+        }
+    }
+    if length > MAX_REQUEST {
+        return Err("request body too large".into());
+    }
+    Ok(length)
 }
 
 struct Request {

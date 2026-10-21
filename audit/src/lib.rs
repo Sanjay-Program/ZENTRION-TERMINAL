@@ -1,12 +1,12 @@
-//! z-audit — local, hash-chained audit log (25-AUDIT, Phase 1 §19).
+//! z-audit — local, hash-chained and optionally Ed25519-signed audit log
+//! (25-AUDIT, Phase 1 §19).
 //!
 //! Append-only events with a SHA-256 hash chain so tampering is detectable
-//! via `z audit verify`. Secrets are never recorded: the event schema
-//! deliberately carries only handles/scopes, never values.
-//!
-//! NOTE: Phase 1 implements a self-contained SHA-256 (no external crypto
-//! dependency) to keep the dependency surface minimal. This is a standard
-//! FIPS-180-4 implementation; it is NOT used for secret storage.
+//! via `z audit verify`. When a signing key exists next to the log (created by
+//! `z audit key`), every new event is also signed with Ed25519; the signature
+//! covers the event's chain hash and is itself excluded from the chain, so
+//! old unsigned logs still verify. Secrets are never recorded: the event
+//! schema deliberately carries only handles/scopes, never values.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -14,6 +14,11 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use z_core::error::{Area, ZenError, ZenResult};
+use z_identity::signing::{verify as verify_signature, SigningKey};
+
+/// Domain separation for audit signatures, so a signature made for another
+/// purpose can never be replayed as an audit signature.
+const SIGNATURE_DOMAIN: &str = "zentrion-audit-v1";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AuditEvent {
@@ -30,6 +35,12 @@ pub struct AuditEvent {
     pub platform: String,
     pub prev_hash: String,
     pub hash: String,
+    /// Ed25519 signature over `SIGNATURE_DOMAIN:hash`, when signing is enabled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signature: Option<String>,
+    /// Public key that produced `signature`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signer: Option<String>,
 }
 
 /// Fields used to compute the chain hash (excludes `hash` itself).
@@ -56,10 +67,28 @@ pub struct AuditLog {
     path: PathBuf,
     last_hash: String,
     counter: u64,
+    signer: Option<SigningKey>,
+}
+
+/// Directory that holds the audit signing key for a given log.
+pub fn signing_key_dir(log_path: &Path) -> PathBuf {
+    log_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("audit-keys")
+}
+
+/// Path of the Ed25519 key that signs `log_path`, if it has been created.
+pub fn signing_key_path(log_path: &Path) -> PathBuf {
+    signing_key_dir(log_path).join("signing.key")
 }
 
 impl AuditLog {
     /// Open (or create) the audit log, recovering the last hash from disk.
+    ///
+    /// If a signing key exists at [`signing_key_path`], new events are signed.
+    /// A key that exists but cannot be loaded is an error: silently falling
+    /// back to unsigned events would be a security regression.
     pub fn open(path: &Path) -> ZenResult<Self> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
@@ -74,10 +103,17 @@ impl AuditLog {
                 }
             }
         }
+        let key_path = signing_key_path(path);
+        let signer = if key_path.exists() {
+            Some(SigningKey::load(&key_path)?)
+        } else {
+            None
+        };
         Ok(Self {
             path: path.to_path_buf(),
             last_hash,
             counter,
+            signer,
         })
     }
 
@@ -123,8 +159,15 @@ impl AuditLog {
             platform: platform.to_string(),
             prev_hash: self.last_hash.clone(),
             hash: String::new(),
+            signature: None,
+            signer: None,
         };
         ev.hash = compute_hash(&self.last_hash, &ev);
+        if let Some(signer) = &self.signer {
+            let payload = signature_payload(&ev.hash);
+            ev.signature = Some(signer.sign_hex(payload.as_bytes()));
+            ev.signer = Some(signer.public_key_hex());
+        }
         self.last_hash = ev.hash.clone();
         self.secure_permissions();
 
@@ -180,6 +223,76 @@ pub fn verify(path: &Path) -> ZenResult<Result<usize, usize>> {
         prev = ev.hash.clone();
     }
     Ok(Ok(events.len()))
+}
+
+fn signature_payload(hash: &str) -> String {
+    format!("{SIGNATURE_DOMAIN}:{hash}")
+}
+
+/// Result of checking event signatures.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SignatureReport {
+    pub total: usize,
+    pub signed: usize,
+    pub unsigned: usize,
+    pub valid: bool,
+    /// Index of the first event whose signature did not verify.
+    pub first_invalid: Option<usize>,
+    /// Public key the log was checked against, if one was available.
+    pub public_key: Option<String>,
+    /// True when signed events exist but the key file is missing.
+    pub key_missing: bool,
+}
+
+/// Verify Ed25519 signatures on a log whose key lives at [`signing_key_path`].
+///
+/// Returns `None` when the log has no signed events (a legacy log). Chain
+/// verification is separate: call [`verify`] first.
+pub fn verify_signatures(path: &Path) -> ZenResult<Option<SignatureReport>> {
+    let events = read_events(path)?;
+    let total = events.len();
+    let signed = events.iter().filter(|ev| ev.signature.is_some()).count();
+    if signed == 0 {
+        return Ok(None);
+    }
+    let key_path = signing_key_path(path);
+    if !key_path.exists() {
+        return Ok(Some(SignatureReport {
+            total,
+            signed,
+            unsigned: total - signed,
+            valid: false,
+            first_invalid: None,
+            public_key: None,
+            key_missing: true,
+        }));
+    }
+    let key = SigningKey::load(&key_path)?;
+    let public_key = key.public_key_hex();
+    let mut first_invalid = None;
+    for (index, ev) in events.iter().enumerate() {
+        let Some(signature) = ev.signature.as_deref() else {
+            continue;
+        };
+        if ev.signer.as_deref() != Some(public_key.as_str()) {
+            first_invalid = Some(index);
+            break;
+        }
+        let payload = signature_payload(&ev.hash);
+        if !verify_signature(&public_key, payload.as_bytes(), signature) {
+            first_invalid = Some(index);
+            break;
+        }
+    }
+    Ok(Some(SignatureReport {
+        total,
+        signed,
+        unsigned: total - signed,
+        valid: first_invalid.is_none(),
+        first_invalid,
+        public_key: Some(public_key),
+        key_missing: false,
+    }))
 }
 
 // ---------------------------------------------------------------------------
@@ -410,6 +523,94 @@ mod tests {
         )
         .unwrap();
         assert_eq!(verify(&p).unwrap(), Ok(2));
+        fs::remove_file(&p).unwrap();
+    }
+
+    #[test]
+    fn signed_events_verify_and_are_excluded_from_the_chain() {
+        let dir = std::env::temp_dir().join(format!(
+            "zen-audit-signed-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("events.jsonl");
+        let key = SigningKey::load_or_create(&signing_key_dir(&p)).unwrap();
+        {
+            let mut log = AuditLog::open(&p).unwrap();
+            let ev = log
+                .append(
+                    "u",
+                    "user",
+                    "filesystem.read",
+                    "./a",
+                    None,
+                    "allow",
+                    "ok",
+                    "LOW",
+                    "linux-x64",
+                )
+                .unwrap();
+            assert!(ev.signature.is_some());
+            assert_eq!(ev.signer.as_deref(), Some(key.public_key_hex().as_str()));
+            log.append(
+                "u",
+                "user",
+                "filesystem.write",
+                "./b",
+                None,
+                "deny",
+                "blocked",
+                "HIGH",
+                "linux-x64",
+            )
+            .unwrap();
+        }
+        // The hash chain is computed without the signature field, so it still
+        // verifies even though signatures are present.
+        assert_eq!(verify(&p).unwrap(), Ok(2));
+        let report = verify_signatures(&p).unwrap().unwrap();
+        assert!(report.valid);
+        assert_eq!(report.signed, 2);
+        assert_eq!(report.total, 2);
+        assert!(report.public_key.is_some());
+
+        // Editing a signature must be detected.
+        let text = fs::read_to_string(&p).unwrap();
+        let tampered = text.replacen("\"signature\":\"", "\"signature\":\"00", 1);
+        fs::write(&p, tampered).unwrap();
+        let report = verify_signatures(&p).unwrap().unwrap();
+        assert!(!report.valid);
+        assert_eq!(report.first_invalid, Some(0));
+
+        // Losing the key is reported, not treated as "unsigned, therefore ok".
+        fs::remove_file(signing_key_path(&p)).unwrap();
+        let report = verify_signatures(&p).unwrap().unwrap();
+        assert!(report.key_missing);
+        assert!(!report.valid);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn unsigned_logs_report_no_signatures() {
+        let p = tmp_log("unsigned");
+        let mut log = AuditLog::open(&p).unwrap();
+        log.append(
+            "u",
+            "user",
+            "filesystem.read",
+            "./a",
+            None,
+            "allow",
+            "ok",
+            "LOW",
+            "linux-x64",
+        )
+        .unwrap();
+        assert!(verify_signatures(&p).unwrap().is_none());
         fs::remove_file(&p).unwrap();
     }
 }

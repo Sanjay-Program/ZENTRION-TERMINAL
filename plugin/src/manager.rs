@@ -1,10 +1,9 @@
 //! WASM plugin discovery and validation.
 //!
-//! This build validates plugin artifacts and their manifests, records their
-//! SHA-256 digest, and keeps a registry. It does **not** execute WebAssembly:
-//! running untrusted modules requires a hardened WASM runtime with explicit
-//! capability grants, which is not compiled in yet. Claiming otherwise would
-//! be a security lie, so `load` reports exactly what it validated.
+//! This crate validates plugin artifacts and their manifests, records their
+//! SHA-256 digest, and keeps a registry. Execution lives in [`crate::runtime`],
+//! which runs a module in wasmtime with explicit capability grants, fuel and
+//! memory limits. Validation alone never executes anything.
 
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};

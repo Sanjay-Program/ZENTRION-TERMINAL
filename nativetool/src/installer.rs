@@ -231,12 +231,8 @@ where
                 Vec::new()
             }
             None => {
-                let bytes = if archive_magic(&bytes) {
-                    let format = if bytes.starts_with(&[0x1f, 0x8b]) {
-                        ArchiveFormat::TarGz
-                    } else {
-                        ArchiveFormat::Tar
-                    };
+                let format = z_package::extract::sniff_format(&bytes);
+                if format != ArchiveFormat::Raw {
                     extract_archive(&bytes, format, &staging, &ExtractionLimits::default())?.files
                 } else {
                     // A bare executable: write it directly under bin/.
@@ -251,8 +247,7 @@ where
                     );
                     std::fs::write(staging.join("bin").join(&name), &bytes)?;
                     vec![format!("bin/{name}")]
-                };
-                bytes
+                }
             }
         };
         Ok(files)
@@ -376,11 +371,6 @@ fn quarantine(store: &ToolStore, bytes: &[u8], sha: &str, url: &str) {
         body.extend_from_slice(bytes);
         let _ = std::fs::write(&p, body);
     }
-}
-
-fn archive_magic(bytes: &[u8]) -> bool {
-    (bytes.len() >= 2 && bytes[0] == 0x1f && bytes[1] == 0x8b)
-        || (bytes.len() >= 265 && &bytes[257..262] == b"ustar")
 }
 
 fn binary_basename(declared: &str, fallback: &str) -> String {
@@ -844,9 +834,18 @@ mod tests {
 
     #[test]
     fn archive_magic_detection() {
-        assert!(archive_magic(&[0x1f, 0x8b, 0, 0]));
-        assert!(!archive_magic(b"#!/bin/sh\n"));
-        assert!(!archive_magic(&[]));
+        use z_package::extract::sniff_format;
+        assert_eq!(
+            sniff_format(&[0x1f, 0x8b, 0, 0]),
+            ArchiveFormat::TarGz
+        );
+        assert_eq!(sniff_format(b"PK\x03\x04more"), ArchiveFormat::Zip);
+        assert_eq!(
+            sniff_format(&[0x28, 0xb5, 0x2f, 0xfd]),
+            ArchiveFormat::TarZst
+        );
+        assert_eq!(sniff_format(b"#!/bin/sh\n"), ArchiveFormat::Raw);
+        assert_eq!(sniff_format(&[]), ArchiveFormat::Raw);
     }
 
     #[test]

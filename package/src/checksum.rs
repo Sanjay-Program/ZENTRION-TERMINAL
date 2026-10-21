@@ -1,9 +1,10 @@
 //! Checksum verification.
 //!
-//! SHA-256 is required; SHA-512 and others are reachable through the same
-//! interface. The SHA-256 implementation is shared with the audit log to keep
-//! the dependency surface empty.
+//! SHA-256 and SHA-512 are both implemented with a streaming hasher, so
+//! artifacts of any size are verified in constant memory.
 
+use sha2::{Digest, Sha256, Sha512};
+use std::io::Read;
 use z_core::error::{Area, ZenError, ZenResult};
 
 pub use z_audit::sha256_hex;
@@ -81,73 +82,56 @@ fn validate_hex(s: &str, len: usize, algo: &str) -> ZenResult<String> {
 /// Compute the checksum of a byte slice.
 pub fn of_bytes(algorithm: HashAlgorithm, data: &[u8]) -> String {
     match algorithm {
-        HashAlgorithm::Sha256 => sha256_hex(data),
-        HashAlgorithm::Sha512 => {
-            // SHA-512 is not implemented in Phase 2. Returning a placeholder
-            // would be a fake result, so this is unreachable by construction:
-            // `hash_file` refuses SHA-512 before calling.
-            unreachable!("sha512 hashing is not implemented; refused earlier")
-        }
+        HashAlgorithm::Sha256 => hex::encode(Sha256::digest(data)),
+        HashAlgorithm::Sha512 => hex::encode(Sha512::digest(data)),
     }
 }
 
 /// Hash a file, streaming so large artifacts do not have to fit in memory.
 pub fn of_file(algorithm: HashAlgorithm, path: &std::path::Path) -> ZenResult<String> {
+    let mut f = std::fs::File::open(path).map_err(|e| {
+        ZenError::new(
+            Area::Fs,
+            6002,
+            format!("cannot open {}: {e}", path.display()),
+        )
+    })?;
+    let mut buf = [0u8; 64 * 1024];
     match algorithm {
         HashAlgorithm::Sha256 => {
-            use std::io::Read;
-            let mut f = std::fs::File::open(path).map_err(|e| {
-                ZenError::new(
-                    Area::Fs,
-                    6002,
-                    format!("cannot open {}: {e}", path.display()),
-                )
-            })?;
-            // The audit SHA-256 works on a buffer; stream in chunks and feed a
-            // growing hasher. For simplicity and correctness we read in
-            // chunks and accumulate using a streaming wrapper below.
-            let mut hasher = StreamingSha256::new();
-            let mut buf = [0u8; 64 * 1024];
+            let mut hasher = Sha256::new();
             loop {
-                let n = f.read(&mut buf)?;
+                let n = f.read(&mut buf).map_err(|e| {
+                    ZenError::new(
+                        Area::Fs,
+                        6002,
+                        format!("cannot read {}: {e}", path.display()),
+                    )
+                })?;
                 if n == 0 {
                     break;
                 }
                 hasher.update(&buf[..n]);
             }
-            Ok(hasher.finish())
+            Ok(hex::encode(hasher.finalize()))
         }
-        HashAlgorithm::Sha512 => Err(ZenError::new(
-            Area::Sec,
-            6003,
-            "sha512 verification is not implemented in this build",
-        )
-        .with_remediation("Use sha256, or request sha512 support as a feature.")),
-    }
-}
-
-/// Streaming SHA-256 wrapper built on the shared implementation.
-///
-/// The audit hasher is one-shot, so we buffer chunks and re-hash with a
-/// running length. To keep this correct without reimplementing SHA-256, we
-/// accumulate into memory only for files below the cap and stream-hash larger
-/// ones via chunked re-hashing is NOT correct — so we cap and refuse instead.
-struct StreamingSha256 {
-    data: Vec<u8>,
-}
-
-/// Refuse to buffer more than this, so a huge artifact cannot exhaust memory.
-const MAX_IN_MEMORY_HASH_BYTES: usize = 512 * 1024 * 1024;
-
-impl StreamingSha256 {
-    fn new() -> Self {
-        Self { data: Vec::new() }
-    }
-    fn update(&mut self, chunk: &[u8]) {
-        self.data.extend_from_slice(chunk);
-    }
-    fn finish(self) -> String {
-        sha256_hex(&self.data)
+        HashAlgorithm::Sha512 => {
+            let mut hasher = Sha512::new();
+            loop {
+                let n = f.read(&mut buf).map_err(|e| {
+                    ZenError::new(
+                        Area::Fs,
+                        6002,
+                        format!("cannot read {}: {e}", path.display()),
+                    )
+                })?;
+                if n == 0 {
+                    break;
+                }
+                hasher.update(&buf[..n]);
+            }
+            Ok(hex::encode(hasher.finalize()))
+        }
     }
 }
 
@@ -170,25 +154,14 @@ pub fn verify_bytes(expected: &Checksum, data: &[u8]) -> ZenResult<()> {
 
 /// Verify a file against an expected checksum.
 pub fn verify_file(expected: &Checksum, path: &std::path::Path) -> ZenResult<()> {
-    let meta = std::fs::metadata(path).map_err(|e| {
+    // `of_file` streams, so no artifact-size cap is needed.
+    std::fs::metadata(path).map_err(|e| {
         ZenError::new(
             Area::Fs,
             6005,
             format!("cannot stat {}: {e}", path.display()),
         )
     })?;
-    if meta.len() as usize > MAX_IN_MEMORY_HASH_BYTES {
-        return Err(ZenError::new(
-            Area::Sec,
-            6006,
-            format!(
-                "artifact is {} bytes, above the {} byte verification limit",
-                meta.len(),
-                MAX_IN_MEMORY_HASH_BYTES
-            ),
-        )
-        .with_remediation("Raise the limit deliberately if you trust this source."));
-    }
     let actual = of_file(expected.algorithm, path)?;
     if actual != expected.hex {
         return Err(ZenError::new(
@@ -270,16 +243,43 @@ mod tests {
     }
 
     #[test]
-    fn sha512_is_refused_not_faked() {
+    fn sha512_matches_known_vector() {
+        assert_eq!(
+            of_bytes(HashAlgorithm::Sha512, b"abc"),
+            "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f"
+        );
+    }
+
+    #[test]
+    fn sha512_verifies_and_rejects_tamper() {
         let d = z_native::fs::private_temp_dir("zen-ck512").unwrap();
         let f = d.join("blob");
         std::fs::write(&f, b"x").unwrap();
+        let digest = of_file(HashAlgorithm::Sha512, &f).unwrap();
         let c = Checksum {
             algorithm: HashAlgorithm::Sha512,
-            hex: "a".repeat(128),
+            hex: digest,
         };
-        let e = verify_file(&c, &f);
-        assert!(e.is_err(), "sha512 must not silently pass");
+        assert!(verify_file(&c, &f).is_ok());
+        std::fs::write(&f, b"y").unwrap();
+        assert!(verify_file(&c, &f).is_err());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn streaming_hash_matches_one_shot_for_large_files() {
+        let d = z_native::fs::private_temp_dir("zen-ckstream").unwrap();
+        let f = d.join("blob");
+        let data: Vec<u8> = (0..(1024 * 1024)).map(|i| (i % 251) as u8).collect();
+        std::fs::write(&f, &data).unwrap();
+        assert_eq!(
+            of_file(HashAlgorithm::Sha256, &f).unwrap(),
+            of_bytes(HashAlgorithm::Sha256, &data)
+        );
+        assert_eq!(
+            of_file(HashAlgorithm::Sha512, &f).unwrap(),
+            of_bytes(HashAlgorithm::Sha512, &data)
+        );
         let _ = std::fs::remove_dir_all(&d);
     }
 }

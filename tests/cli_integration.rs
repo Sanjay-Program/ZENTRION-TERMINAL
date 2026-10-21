@@ -103,6 +103,75 @@ fn help_lists_commands() {
 }
 
 #[test]
+fn audit_key_signs_future_events_and_verify_detects_edits() {
+    let env = Env::new("audit-sign");
+    let (out, _, code) = run(&env, &env.project(), &["audit", "key", "--json"]);
+    assert_eq!(code, 0, "{out}");
+    let key: serde_json::Value = serde_json::from_str(&out).expect("valid json");
+    assert_eq!(key["public_key"].as_str().unwrap().len(), 64);
+
+    // A denied command still produces an audit event.
+    let _ = run(&env, &env.project(), &["run", "/bin/true"]);
+    let (out, _, code) = run(&env, &env.project(), &["audit", "verify", "--json"]);
+    assert_eq!(code, 0, "{out}");
+    let report: serde_json::Value = serde_json::from_str(&out).expect("valid json");
+    assert_eq!(report["ok"], true);
+    assert_eq!(report["signatures"]["valid"], true);
+    assert!(report["signatures"]["signed_events"].as_u64().unwrap() >= 1);
+
+    // Editing a signature must fail verification.
+    let log = env.dir.join("data/audit/events.jsonl");
+    let text = std::fs::read_to_string(&log).unwrap();
+    let tampered = text.replacen("\"signature\":\"", "\"signature\":\"00", 1);
+    assert_ne!(text, tampered);
+    std::fs::write(&log, tampered).unwrap();
+    let (out, _, code) = run(&env, &env.project(), &["audit", "verify", "--json"]);
+    assert_ne!(code, 0, "tampered signature must fail: {out}");
+}
+
+#[test]
+fn plugin_run_executes_a_real_wasm_module() {
+    let env = Env::new("plugin-run");
+    // A 79-byte module exporting memory/alloc/run that echoes its input.
+    const MODULE: &[u8] = &[
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x0c, 0x02, 0x60, 0x01, 0x7f, 0x01,
+        0x7f, 0x60, 0x02, 0x7f, 0x7f, 0x01, 0x7e, 0x03, 0x03, 0x02, 0x00, 0x01, 0x05, 0x03, 0x01,
+        0x00, 0x01, 0x07, 0x18, 0x03, 0x06, 0x6d, 0x65, 0x6d, 0x6f, 0x72, 0x79, 0x02, 0x00, 0x05,
+        0x61, 0x6c, 0x6c, 0x6f, 0x63, 0x00, 0x00, 0x03, 0x72, 0x75, 0x6e, 0x00, 0x01, 0x0a, 0x13,
+        0x02, 0x04, 0x00, 0x41, 0x00, 0x0b, 0x0c, 0x00, 0x20, 0x00, 0xad, 0x42, 0x20, 0x86, 0x20,
+        0x01, 0xad, 0x84, 0x0b,
+    ];
+    let wasm = env.project().join("echo.wasm");
+    std::fs::write(&wasm, MODULE).unwrap();
+    std::fs::write(
+        env.project().join("echo.wasm.json"),
+        r#"{"name":"echo","version":"1.0.0","plugin_type":"wasm","entrypoint":"run","permissions":["log","network"]}"#,
+    )
+    .unwrap();
+
+    let (out, err, code) = run(
+        &env,
+        &env.project(),
+        &["plugin", "run", "echo.wasm", "--input", "hello-wasm"],
+    );
+    assert_eq!(code, 0, "stdout: {out}\nstderr: {err}");
+    assert!(out.contains("hello-wasm"), "{out}");
+
+    let (out, _, code) = run(
+        &env,
+        &env.project(),
+        &["plugin", "capabilities", "echo.wasm", "--json"],
+    );
+    assert_eq!(code, 0);
+    let caps: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert!(caps["unsupported"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|v| v == "network"));
+}
+
+#[test]
 fn doctor_runs_offline_and_exits_zero() {
     let env = Env::new("doctor");
     let (out, _, code) = run(&env, &env.project(), &["doctor"]);
@@ -370,9 +439,12 @@ fn plugin_validation_accepts_a_minimal_wasm_header() {
     std::fs::write(&path, b"\0asm\x01\0\0\0").unwrap();
     let (out, _, code) = run(&env, &proj, &["plugin", "inspect", path.to_str().unwrap()]);
     assert_eq!(code, 0, "plugin inspect failed: {out}");
+    // Inspect validates only: this header has no memory/alloc/run, so if it
+    // tried to execute, the command would fail instead of printing a report.
+    assert!(out.contains("Validated plugin"), "{out}");
     assert!(
-        out.contains("Not executed"),
-        "must not claim execution: {out}"
+        out.contains("plugin run"),
+        "inspect should point at the capability-gated runner: {out}"
     );
 }
 

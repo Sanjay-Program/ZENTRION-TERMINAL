@@ -2,6 +2,25 @@
 
 ## Unreleased — blueprint implementation
 
+### Plugin runtime, packaging, DNS and audit signing
+- Added a capability-gated wasmtime plugin host (`z plugin run`): only `log`,
+  `clock`, `kv:read` and `kv:write` imports exist, fuel/linear-memory limits are
+  enforced, output is bounded, unknown imports fail instantiation, and runs are
+  audited. Per-plugin key/value state persists under the user data directory.
+- Replaced the SHA-512 refusal and 512 MiB buffering cap in `z-package` with
+  streaming SHA-256/SHA-512 over any artifact size.
+- Added real `.tar.zst` extraction (zstd) and `.zip` extraction (stored +
+  deflate, CRC-32 verified) to the two-phase, traversal/symlink/bomb-safe
+  extractor; the tool installer now sniffs tar, tar.gz, tar.zst and zip.
+- Added a built-in DNS wire-protocol client: A/AAAA/CNAME/MX/TXT/NS/SOA/PTR
+  over UDP with TCP fallback, resolv.conf discovery, and hardened name
+  compression parsing. `z dnsx --type MX|TXT|...` and reverse PTR lookups work
+  without `dig`/`nslookup`; the phase-3 `dns.records`/`dns.reverse` operations
+  are wired to it.
+- Added opt-in Ed25519 signing to `z-audit`: `z audit key` creates a local key,
+  new events are signed (the signature is excluded from the SHA-256 chain), and
+  `z audit verify` checks signatures, missing keys and unsigned legacy logs.
+
 ### Terminal workspace, blocks and sessions
 - Added `z-session`: a per-user Unix-socket daemon that owns PTYs, records
   command blocks, replays output by sequence number and survives UI detach.

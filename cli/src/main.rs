@@ -282,7 +282,7 @@ enum Commands {
         args: Vec<String>,
     },
 
-    /// Validate and inspect WASM plugins (no execution)
+    /// Validate, inspect and run WASM plugins (capability-gated)
     Plugin {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
@@ -1037,6 +1037,8 @@ fn handle_mcp(
 }
 
 fn handle_plugin(args: &[String], json_out: bool) -> z_core::error::ZenResult<()> {
+    // Free-form arguments capture a trailing `--json` before clap sees it.
+    let json_out = json_out || args.iter().any(|arg| arg == "--json");
     match args.first().map(|s| s.as_str()) {
         Some("load") | Some("inspect") => {
             let path = args.get(1).ok_or_else(|| {
@@ -1057,7 +1059,7 @@ fn handle_plugin(args: &[String], json_out: bool) -> z_core::error::ZenResult<()
                                 "sha256": validated.sha256,
                                 "size": validated.size,
                                 "executed": false,
-                                "note": "validated only; this build has no WASM runtime",
+                                "note": "validated; use `z plugin run` for capability-gated execution",
                             }))
                             .unwrap_or_default()
                         );
@@ -1077,7 +1079,7 @@ fn handle_plugin(args: &[String], json_out: bool) -> z_core::error::ZenResult<()
                         println!("  sha256:      {}", validated.sha256);
                         println!("  size:        {} bytes", validated.size);
                         println!();
-                        println!("  Not executed: this build validates plugins but does not embed a WASM runtime.");
+                        println!("  Execution: `z plugin run <path> --input <text>` (capability-gated).");
                     }
                     Ok(())
                 }
@@ -1088,6 +1090,206 @@ fn handle_plugin(args: &[String], json_out: bool) -> z_core::error::ZenResult<()
                 )
                 .with_remediation("A plugin must be a valid WASM module; an optional sibling <file>.wasm.json manifest is supported.")),
             }
+        }
+        Some("run") => {
+            let path = args.get(1).ok_or_else(|| {
+                z_core::error::ZenError::new(
+                    z_core::error::Area::Cfg,
+                    103,
+                    "usage: z plugin run <path.wasm> [--input <text>] [--fuel N] [--memory BYTES]",
+                )
+            })?;
+            let mut input = String::new();
+            let mut explicit_input = false;
+            let mut fuel = plugin::runtime::DEFAULT_FUEL;
+            let mut memory = plugin::runtime::DEFAULT_MAX_MEMORY;
+            let mut index = 2;
+            while index < args.len() {
+                match args[index].as_str() {
+                    "--input" => {
+                        input = args.get(index + 1).cloned().unwrap_or_default();
+                        explicit_input = true;
+                        index += 2;
+                    }
+                    "--fuel" => {
+                        fuel = args
+                            .get(index + 1)
+                            .and_then(|value| value.parse().ok())
+                            .ok_or_else(|| {
+                                z_core::error::ZenError::new(
+                                    z_core::error::Area::Cfg,
+                                    103,
+                                    "--fuel must be a positive integer",
+                                )
+                            })?;
+                        index += 2;
+                    }
+                    "--memory" => {
+                        memory = args
+                            .get(index + 1)
+                            .and_then(|value| value.parse().ok())
+                            .ok_or_else(|| {
+                                z_core::error::ZenError::new(
+                                    z_core::error::Area::Cfg,
+                                    103,
+                                    "--memory must be a byte count",
+                                )
+                            })?;
+                        index += 2;
+                    }
+                    "--json" => {
+                        index += 1;
+                    }
+                    other => {
+                        return Err(z_core::error::ZenError::new(
+                            z_core::error::Area::Cfg,
+                            103,
+                            format!("unknown plugin run argument `{other}`"),
+                        ))
+                    }
+                }
+            }
+            use std::io::IsTerminal;
+            if !explicit_input && !std::io::stdin().is_terminal() {
+                use std::io::Read;
+                let mut buffer = String::new();
+                std::io::stdin().read_to_string(&mut buffer).ok();
+                input = buffer;
+            }
+            let validated = plugin::manager::validate_plugin(std::path::Path::new(path))
+                .map_err(|e| {
+                    z_core::error::ZenError::new(
+                        z_core::error::Area::Cfg,
+                        102,
+                        format!("plugin validation failed: {e:#}"),
+                    )
+                })?;
+            let runtime = plugin::runtime::PluginRuntime::new().map_err(|e| {
+                z_core::error::ZenError::new(
+                    z_core::error::Area::Cfg,
+                    106,
+                    format!("cannot initialize WASM runtime: {e:#}"),
+                )
+            })?;
+            let limits = plugin::runtime::RunLimits {
+                fuel,
+                max_memory_bytes: memory,
+                ..Default::default()
+            };
+            let audit_resource = format!("plugin:{}", validated.manifest.name);
+            match runtime.run(&validated, input.as_bytes(), &limits) {
+                Ok(run) => {
+                    let _ = z_audit::AuditLog::open(&crate::context::audit_path()?).and_then(
+                        |mut log| {
+                            log.append(
+                                "user",
+                                "user",
+                                "plugin.run",
+                                &audit_resource,
+                                None,
+                                "allow",
+                                "ok",
+                                "medium",
+                                std::env::consts::OS,
+                            )
+                            .map(|_| ())
+                        },
+                    );
+                    if json_out {
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&run).unwrap_or_default()
+                        );
+                    } else {
+                        println!("plugin:    {}", run.plugin);
+                        println!("fuel used: {}", run.fuel_used);
+                        println!("duration:  {}ms", run.duration_ms);
+                        if !run.logs.is_empty() {
+                            println!("logs:");
+                            for log in &run.logs {
+                                println!("  {log}");
+                            }
+                        }
+                        println!("output:");
+                        print!("{}", run.output);
+                        if !run.output.ends_with('\n') {
+                            println!();
+                        }
+                    }
+                    Ok(())
+                }
+                Err(error) => {
+                    let _ = z_audit::AuditLog::open(&crate::context::audit_path()?).and_then(
+                        |mut log| {
+                            log.append(
+                                "user",
+                                "user",
+                                "plugin.run",
+                                &audit_resource,
+                                None,
+                                "allow",
+                                "failed",
+                                "medium",
+                                std::env::consts::OS,
+                            )
+                            .map(|_| ())
+                        },
+                    );
+                    Err(z_core::error::ZenError::new(
+                        z_core::error::Area::Cfg,
+                        107,
+                        format!("plugin execution failed: {error:#}"),
+                    )
+                    .with_remediation(
+                        "Plugins may only import log/clock/kv host functions and must export memory, alloc and the manifest entrypoint.",
+                    ))
+                }
+            }
+        }
+        Some("capabilities") => {
+            let path = args.get(1).ok_or_else(|| {
+                z_core::error::ZenError::new(
+                    z_core::error::Area::Cfg,
+                    103,
+                    "usage: z plugin capabilities <path.wasm>",
+                )
+            })?;
+            let validated = plugin::manager::validate_plugin(std::path::Path::new(path))
+                .map_err(|e| {
+                    z_core::error::ZenError::new(
+                        z_core::error::Area::Cfg,
+                        102,
+                        format!("plugin validation failed: {e:#}"),
+                    )
+                })?;
+            let supported = plugin::runtime::PluginRuntime::supported_capabilities();
+            let declared = &validated.manifest.permissions;
+            let unsupported: Vec<&String> = declared
+                .iter()
+                .filter(|permission| !supported.contains(&permission.as_str()))
+                .collect();
+            if json_out {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "name": validated.manifest.name,
+                        "declared": declared,
+                        "supported": supported,
+                        "unsupported": unsupported,
+                        "ambient_access": "none: no filesystem, network, process or secret imports are provided",
+                    }))
+                    .unwrap_or_default()
+                );
+            } else {
+                println!("plugin: {}", validated.manifest.name);
+                println!("declared: {:?}", declared);
+                println!("supported: {:?}", supported);
+                if !unsupported.is_empty() {
+                    println!("unsupported (never granted): {:?}", unsupported);
+                }
+                println!("ambient access: none (no filesystem/network/process/secret imports)");
+            }
+            Ok(())
         }
         Some("list") => {
             let dir = args.get(1).map(std::path::PathBuf::from);
@@ -1144,7 +1346,7 @@ fn handle_plugin(args: &[String], json_out: bool) -> z_core::error::ZenResult<()
         _ => Err(z_core::error::ZenError::new(
             z_core::error::Area::Cfg,
             103,
-            "usage: z plugin <load|inspect|list> [path]",
+            "usage: z plugin <load|inspect|list|run|capabilities> [path]",
         )),
     }
 }

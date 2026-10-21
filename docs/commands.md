@@ -38,7 +38,10 @@ ZENTRION TERMINAL interprets your intent and dynamically routes the capability.
 ## Audit & Security
 
 *   `z audit tail` — Shows the last 20 events in the audit log.
-*   `z audit verify` — Verifies the SHA-256 hash chain to detect tampering.
+*   `z audit verify` — Verifies the SHA-256 hash chain and any Ed25519 event signatures.
+*   `z audit key` — Creates the local audit signing key so future events are signed.
+*   `z plugin run <file.wasm> [--input TEXT] [--fuel N] [--memory BYTES]` — Runs a WASM plugin in the capability-gated host (`log`, `clock`, `kv:read`, `kv:write` only).
+*   `z plugin capabilities <file.wasm>` — Shows declared vs. actually granted host capabilities.
 *   `z scan <target>` — Runs a security scan. Examples:
     *   `z scan .` (Scans current directory)
     *   `z scan --profile web https://example.com` (Web application scan)
@@ -58,10 +61,15 @@ ZENTRION TERMINAL interprets your intent and dynamically routes the capability.
 
 *   `z search <query>` — Searches the offline tool registry.
 *   `z bundle plan <name>` — Prints dry-run install commands for a curated bundle (e.g., `z bundle plan kali-top10`).
-*   `z install <tool>` — Installs a tool (checksum verified).
+*   `z install <tool>` — Installs a tool (checksum verified; tar, tar.gz, tar.zst and zip artifacts are supported).
 *   `z list` — Lists all installed tools.
 *   `z update` — Updates all outdated tools.
 *   `z remove <tool>` — Uninstalls a specific tool.
+
+## Network
+
+*   `z run dnsx [--port N] [--type TYPE] <hostname>` — Runs the `dnsx` native engine (install it from the registry). With `--type` (A, AAAA, CNAME, MX, TXT, NS, SOA, PTR) it uses the built-in DNS query engine.
+*   `z run dnsx --type PTR <ip>` — Reverse-resolves an IPv4/IPv6 address.
 
 ## Emergency Controls
 

@@ -132,7 +132,7 @@ PTY, tabs, splits, and a local control plane.
 - **Sessions are Unix-only.** The daemon/client use a Unix socket; the Windows
   named-pipe transport is not implemented. Raw scrollback is not persisted
   across a daemon restart (blocks are).
-- **No GPU renderer, plugin runtime, durable remote daemon or team control
+- **No GPU renderer, durable remote daemon or team control
   plane yet.** The web observer is a plain-text loopback viewer, not a full
   browser terminal.
 - **Checkpoint accept is file-level.** Hunks are displayed, but there is no
@@ -141,8 +141,10 @@ PTY, tabs, splits, and a local control plane.
   response; there is no token stream or cancellation, and response caching is
   process-local. Embeddings are not implemented.
 - **No performance numbers are claimed.** No benchmark harness has been run.
-- Plugins are validated (WASM header, manifest, SHA-256) but not executed;
-  there is no embedded WASM runtime yet.
+- Plugins run in a capability-gated wasmtime host: only `log`, `clock`,
+  `kv:read` and `kv:write` imports exist, fuel and linear-memory limits are
+  enforced, and there is no filesystem, network, process or secret access.
+  There is no plugin marketplace and no host ABI beyond those four calls.
 - AI research is model-synthesized. It does not crawl the web by default, and
   it is instructed not to invent citations.
 - Cloud commands perform static IaC review; they do not call AWS/GCP/Azure

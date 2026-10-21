@@ -1069,22 +1069,77 @@ pub fn policy(args: &[String], project: Option<PathBuf>, json: bool) -> ZenResul
     }
 }
 
-/// `z audit <tail|verify>`.
+/// `z audit <tail|verify|key>`.
 pub fn audit(args: &[String], json: bool) -> ZenResult<()> {
+    // `audit` takes free-form arguments, so a trailing `--json` is captured
+    // here rather than by clap's global flag.
+    let json = json || args.iter().any(|arg| arg == "--json");
     let path = audit_path()?;
     match args.first().map(|s| s.as_str()) {
         Some("verify") | None => {
             match z_audit::verify(&path)? {
                 Ok(n) => {
+                    let signatures = z_audit::verify_signatures(&path)?;
+                    let mut ok = true;
+                    let signature_json = match &signatures {
+                        None => json!({"signed": false}),
+                        Some(report) if report.valid => json!({
+                            "signed": true,
+                            "valid": true,
+                            "signed_events": report.signed,
+                            "public_key": report.public_key,
+                        }),
+                        Some(report) => {
+                            ok = false;
+                            json!({
+                                "signed": true,
+                                "valid": false,
+                                "key_missing": report.key_missing,
+                                "first_invalid": report.first_invalid,
+                                "signed_events": report.signed,
+                            })
+                        }
+                    };
                     if json {
                         println!(
                             "{}",
-                            serde_json::to_string_pretty(&json!({"ok": true, "events": n}))?
+                            serde_json::to_string_pretty(&json!({
+                                "ok": ok,
+                                "events": n,
+                                "signatures": signature_json,
+                            }))?
                         );
                     } else if n == 0 {
                         println!("Audit log is empty and consistent.");
                     } else {
                         println!("Audit chain verified: {n} events, no tampering detected.");
+                        match &signatures {
+                            None => println!(
+                                "Signatures: none (run `z audit key` to sign future events)."
+                            ),
+                            Some(report) if report.valid => println!(
+                                "Signatures: {}/{} events signed with Ed25519 key {}.",
+                                report.signed,
+                                report.total,
+                                report.public_key.as_deref().unwrap_or("?")
+                            ),
+                            Some(report) if report.key_missing => println!(
+                                "Signatures: {} signed events, but the key file is missing; authenticity cannot be checked.",
+                                report.signed
+                            ),
+                            Some(report) => println!(
+                                "Signatures: INVALID at event {:?} ({} signed events).",
+                                report.first_invalid, report.signed
+                            ),
+                        }
+                    }
+                    if !ok {
+                        return Err(
+                            ZenError::new(Area::Aud, 3013, "audit signature verification failed")
+                                .with_remediation(
+                                    "The log was modified or the signing key is missing. Investigate before trusting it.",
+                                ),
+                        );
                     }
                     Ok(())
                 }
@@ -1105,6 +1160,28 @@ pub fn audit(args: &[String], json: bool) -> ZenResult<()> {
                     )
                 }
             }
+        }
+        Some("key") => {
+            let key =
+                z_identity::signing::SigningKey::load_or_create(&z_audit::signing_key_dir(&path))?;
+            let public_key = key.public_key_hex();
+            let key_path = key.path().display().to_string();
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "public_key": public_key,
+                        "key_path": key_path,
+                        "note": "future audit events are signed; the private key never leaves this machine",
+                    }))?
+                );
+            } else {
+                println!("Audit signing enabled.");
+                println!("  public key: {public_key}");
+                println!("  key file:   {key_path}");
+                println!("Future events are signed with Ed25519; `z audit verify` checks them.");
+            }
+            Ok(())
         }
         Some("tail") => {
             let n: usize = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(20);
@@ -1134,7 +1211,7 @@ pub fn audit(args: &[String], json: bool) -> ZenResult<()> {
             3012,
             format!("unknown audit subcommand '{other}'"),
         )
-        .with_remediation("Usage: z audit [tail [n]|verify]")),
+        .with_remediation("Usage: z audit [tail [n]|verify|key]")),
     }
 }
 

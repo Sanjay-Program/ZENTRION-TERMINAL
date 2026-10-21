@@ -46,6 +46,7 @@ fn dns_resolve(args: Vec<String>, json_out: bool) -> ZenResult<()> {
     // (Naively taking "the first non-dash token" picks up the option's value.)
     let mut host: Option<String> = None;
     let mut port: u16 = 443;
+    let mut record: Option<z_native::dns::RecordType> = None;
     let mut i = 0usize;
     while i < args.len() {
         match args[i].as_str() {
@@ -58,13 +59,27 @@ fn dns_resolve(args: Vec<String>, json_out: bool) -> ZenResult<()> {
                     .map_err(|_| ZenError::new(Area::Cfg, 307, format!("invalid port '{val}'")))?;
                 i += 2;
             }
+            "--type" | "-t" => {
+                let val = args
+                    .get(i + 1)
+                    .ok_or_else(|| ZenError::new(Area::Cfg, 310, "--type requires a record type"))?;
+                record = Some(z_native::dns::RecordType::parse(val).ok_or_else(|| {
+                    ZenError::new(
+                        Area::Cfg,
+                        311,
+                        format!("unsupported DNS record type '{val}'"),
+                    )
+                    .with_remediation("Use A, AAAA, CNAME, MX, TXT, NS, SOA or PTR.")
+                })?);
+                i += 2;
+            }
             "--json" => {
                 i += 1;
             }
             other if other.starts_with('-') => {
                 return Err(
                     ZenError::new(Area::Cfg, 308, format!("unknown option '{other}'"))
-                        .with_remediation("Usage: dnsx [--port N] <hostname>"),
+                        .with_remediation("Usage: dnsx [--port N] [--type TYPE] <hostname>"),
                 );
             }
             other => {
@@ -83,9 +98,14 @@ fn dns_resolve(args: Vec<String>, json_out: bool) -> ZenResult<()> {
     }
 
     let host =
-        host.ok_or_else(|| ZenError::new(Area::Cfg, 301, "usage: dnsx [--port N] <hostname>"))?;
+        host.ok_or_else(|| ZenError::new(Area::Cfg, 301, "usage: dnsx [--port N] [--type TYPE] <hostname>"))?;
 
-    match z_native::dns::resolve_addresses(&host, port) {
+    let outcome = match record {
+        Some(record) => z_native::dns::lookup(&host, record),
+        None => z_native::dns::resolve_addresses(&host, port),
+    };
+
+    match outcome {
         z_native::dns::DnsOutcome::Records(records) => {
             if json_out {
                 println!(

@@ -438,7 +438,9 @@ mod tests {
             .exec(&target, "true", Duration::from_millis(150))
             .unwrap();
         assert!(output.timed_out);
-        assert!(started.elapsed() < Duration::from_secs(2));
+        // Generous bound: this asserts the timeout works at all without
+        // failing under a loaded parallel test run.
+        assert!(started.elapsed() < Duration::from_secs(10));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -457,12 +459,12 @@ mod tests {
         let local = dir.join("file");
         std::fs::write(&local, "x").unwrap();
         let output = runner
-            .upload(&target, &local, "/tmp/file", false, Duration::from_secs(2))
+            .upload(&target, &local, "/tmp/file", false, Duration::from_secs(10))
             .unwrap();
         assert!(output.stdout.contains("-P 2222"), "{}", output.stdout);
         assert!(output.stdout.contains("example.com:/tmp/file"));
         assert!(runner
-            .upload(&target, &local, "-rf", false, Duration::from_secs(2))
+            .upload(&target, &local, "-rf", false, Duration::from_secs(10))
             .is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }

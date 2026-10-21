@@ -444,60 +444,109 @@ impl Engine for DnsEngine {
         let started = now_millis();
         let target = as_string(request.input.get("target"))
             .ok_or_else(|| json_error(self.name(), &request.operation, "missing target"))?;
-        match request.operation.as_str() {
-            "resolve" => match dns::resolve_addresses(&target, 80) {
-                dns::DnsOutcome::Records(records) => Ok(EngineResult {
-                    status: "success".into(),
-                    engine: self.name().into(),
-                    data: json!({
-                        "target": target,
-                        "records": records,
-                        "assets": [asset(AssetKind::Host, target)],
-                    }),
-                    findings: vec![],
-                    stdout: String::new(),
-                    stderr: String::new(),
-                    duration_ms: u128::from(now_millis().saturating_sub(started)),
-                }),
-                dns::DnsOutcome::Unsupported(msg) => Ok(EngineResult {
-                    status: "unsupported".into(),
-                    engine: self.name().into(),
-                    data: json!({"message": msg, "target": target}),
-                    findings: vec![finding(
-                        "DNS resolution unavailable",
-                        Severity::Info,
-                        0.7,
-                        Some(asset(AssetKind::Domain, target.clone())),
-                        vec![msg.to_string()],
-                        "The current build cannot resolve the requested record type natively.",
-                        "Use a supported native record type or add a DNS backend.",
-                        "dns",
-                    )],
-                    stdout: String::new(),
-                    stderr: String::new(),
-                    duration_ms: u128::from(now_millis().saturating_sub(started)),
-                }),
-                dns::DnsOutcome::Failed(msg) => Ok(EngineResult {
-                    status: "failed".into(),
-                    engine: self.name().into(),
-                    data: json!({"message": msg, "target": target}),
-                    findings: vec![finding(
-                        "DNS lookup failed",
-                        Severity::Low,
-                        0.9,
-                        Some(asset(AssetKind::Domain, target.clone())),
-                        vec![msg.clone()],
-                        "The resolver could not return addresses for the requested target.",
-                        "Verify the hostname and network reachability.",
-                        "dns",
-                    )],
-                    stdout: String::new(),
-                    stderr: msg,
-                    duration_ms: u128::from(now_millis().saturating_sub(started)),
-                }),
-            },
-            other => Err(json_error(self.name(), other, "unsupported operation")),
-        }
+        let kind = match request.operation.as_str() {
+            "resolve" => AssetKind::Host,
+            "records" => AssetKind::Domain,
+            "reverse" => {
+                target.parse::<std::net::IpAddr>().map_err(|_| {
+                    json_error(
+                        self.name(),
+                        &request.operation,
+                        "reverse lookup requires an IP address target",
+                    )
+                })?;
+                AssetKind::Ip
+            }
+            other => return Err(json_error(self.name(), other, "unsupported operation")),
+        };
+        let outcome = match request.operation.as_str() {
+            "resolve" => dns::resolve_addresses(&target, 80),
+            "records" => {
+                let requested = request
+                    .input
+                    .get("record_type")
+                    .or_else(|| request.input.get("type"))
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("A");
+                let record = dns::RecordType::parse(requested).ok_or_else(|| {
+                    json_error(
+                        self.name(),
+                        &request.operation,
+                        format!("unsupported record type `{requested}`"),
+                    )
+                })?;
+                dns::lookup(&target, record)
+            }
+            _ => dns::lookup(&target, dns::RecordType::Ptr),
+        };
+        Ok(dns_engine_result(
+            &request.operation,
+            &target,
+            kind,
+            outcome,
+            started,
+        ))
+    }
+}
+
+fn dns_engine_result(
+    operation: &str,
+    target: &str,
+    kind: AssetKind,
+    outcome: dns::DnsOutcome,
+    started: u64,
+) -> EngineResult {
+    let base = |status: &str, data: Value, findings: Vec<Finding>, stderr: String| EngineResult {
+        status: status.into(),
+        engine: "dns".into(),
+        data,
+        findings,
+        stdout: String::new(),
+        stderr,
+        duration_ms: u128::from(now_millis().saturating_sub(started)),
+    };
+    match outcome {
+        dns::DnsOutcome::Records(records) => base(
+            "success",
+            json!({
+                "operation": operation,
+                "target": target,
+                "records": records,
+                "assets": [asset(kind, target)],
+            }),
+            vec![],
+            String::new(),
+        ),
+        dns::DnsOutcome::Unsupported(msg) => base(
+            "unsupported",
+            json!({"operation": operation, "message": msg, "target": target}),
+            vec![finding(
+                "DNS resolution unavailable",
+                Severity::Info,
+                0.7,
+                Some(asset(kind, target)),
+                vec![msg.to_string()],
+                "The current build cannot resolve the requested record type natively.",
+                "Use a supported native record type or add a DNS backend.",
+                "dns",
+            )],
+            String::new(),
+        ),
+        dns::DnsOutcome::Failed(msg) => base(
+            "failed",
+            json!({"operation": operation, "message": msg, "target": target}),
+            vec![finding(
+                "DNS lookup failed",
+                Severity::Low,
+                0.9,
+                Some(asset(kind, target)),
+                vec![msg.clone()],
+                "The resolver could not return records for the requested target.",
+                "Verify the hostname, record type and network reachability.",
+                "dns",
+            )],
+            msg,
+        ),
     }
 }
 

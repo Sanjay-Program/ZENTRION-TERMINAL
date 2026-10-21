@@ -14,3 +14,8 @@ z-core = { version = "0.1.0", path = "../core" }
 serde_json.workspace = true
 sha2 = "0.11.1"
 hex = "0.4.3"
+wasmtime = "27"
+libc = "0.2"
+
+[dev-dependencies]
+wat = "1"

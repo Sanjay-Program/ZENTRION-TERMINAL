@@ -17,7 +17,7 @@ this environment.
 | Process inspection | Reads `/proc/<pid>/{comm,stat,exe,status}` directly | verified |
 | Process listing | Enumerates `/proc`, filters numeric entries | verified |
 | System memory | `MemTotal` / `MemAvailable` from `/proc/meminfo` | verified |
-| DNS A/AAAA | OS resolver via `getaddrinfo` | verified |
+| DNS | OS resolver for A/AAAA; built-in wire client for CNAME/MX/TXT/NS/SOA/PTR | verified |
 | Sandbox level | `resource-limits` (no_new_privs + rlimits + non-dumpable + umask + PDEATHSIG) | implemented and reported honestly |
 | Process execution | `std::process::Command`, direct, no shell | verified |
 

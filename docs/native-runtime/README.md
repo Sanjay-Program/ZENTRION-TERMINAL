@@ -54,7 +54,7 @@ Verified on Linux x64 in this environment:
 | Process inspection (own user, via `/proc`) | Implemented, tested |
 | Filesystem inspection + path safety | Implemented, tested |
 | System info (CPU, memory, hostname) | Implemented, tested (Linux) |
-| DNS A/AAAA via the OS resolver | Implemented, tested (offline-safe) |
+| DNS record lookups (OS resolver + wire client) | Implemented, tested (offline-safe) |
 | Sandbox level reporting | Implemented, tested (honest per-platform) |
 | HTTP transport | Interface only — opt-in `http` feature |
 | TLS inspection | Interface only — returns `Unsupported` |
@@ -67,7 +67,7 @@ Verified on Linux x64 in this environment:
 | Process inspection | verified (`/proc`) | not implemented (needs libproc) | not implemented (needs Toolhelp32) |
 | Filesystem inspection | verified | unverified | unverified |
 | System memory info | verified (`/proc/meminfo`) | returns `None` | returns `None` |
-| DNS A/AAAA | verified | unverified | unverified |
+| DNS records | verified | unverified | unverified |
 | Sandbox level reported | maximum | filesystem+network | resource-limits |
 
 "Not implemented" means the trait returns `Unsupported` with a message. It does

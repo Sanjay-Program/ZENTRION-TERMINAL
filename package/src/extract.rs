@@ -32,7 +32,7 @@ pub enum ArchiveFormat {
     TarZst,
     /// Plain single file (no container).
     Raw,
-    /// Zip. Not implemented in Phase 2.
+    /// Zip container (stored and deflate entries; ZIP64 is refused).
     Zip,
 }
 
@@ -459,18 +459,15 @@ pub fn extract_archive(
             let entries = parse_tar(&tar_bytes)?;
             write_plan(&entries, dest_root, limits, format)
         }
-        ArchiveFormat::TarZst => Err(ZenError::new(
-            Area::Sec,
-            6131,
-            "zstd extraction is not implemented in this build",
-        )
-        .with_remediation("Use a .tar.gz or .tar artifact.")),
-        ArchiveFormat::Zip => Err(ZenError::new(
-            Area::Sec,
-            6132,
-            "zip extraction is not implemented in this build",
-        )
-        .with_remediation("Use a .tar.gz or .tar artifact.")),
+        ArchiveFormat::TarZst => {
+            let tar_bytes = unzstd(bytes, limits)?;
+            let entries = parse_tar(&tar_bytes)?;
+            write_plan(&entries, dest_root, limits, format)
+        }
+        ArchiveFormat::Zip => {
+            let entries = parse_zip(bytes, limits)?;
+            write_plan(&entries, dest_root, limits, format)
+        }
     }
 }
 
@@ -562,6 +559,345 @@ fn write_plan(
         total_bytes: total,
         files,
     })
+}
+
+/// Read a little-endian u16 at `at`, or `None` on a short buffer.
+fn u16le(bytes: &[u8], at: usize) -> Option<u16> {
+    bytes
+        .get(at..at + 2)
+        .map(|b| u16::from_le_bytes([b[0], b[1]]))
+}
+
+/// Read a little-endian u32 at `at`, or `None` on a short buffer.
+fn u32le(bytes: &[u8], at: usize) -> Option<u32> {
+    bytes
+        .get(at..at + 4)
+        .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+}
+
+fn zip_error(code: u16, message: impl Into<String>) -> ZenError {
+    ZenError::new(Area::Sec, code, message.into())
+}
+
+/// Parse a ZIP archive into the same `TarEntry` shape used by the tar path, so
+/// that one hardened writer validates and writes both formats.
+///
+/// Only stored (0) and deflate (8) entries are supported. Encrypted entries,
+/// ZIP64 archives, symlinks, hardlinks and special files are refused rather
+/// than guessed at. Sizes are checked against the limits *before* any
+/// decompression, and every entry's CRC-32 is verified after decompression.
+fn parse_zip(bytes: &[u8], limits: &ExtractionLimits) -> ZenResult<Vec<TarEntry>> {
+    const EOCD_SIG: u32 = 0x0605_4b50;
+    const CENTRAL_SIG: u32 = 0x0201_4b50;
+    const LOCAL_SIG: u32 = 0x0403_4b50;
+
+    if bytes.len() < 22 {
+        return Err(zip_error(6150, "zip stream is too short to contain a directory"));
+    }
+    // The EOCD record sits at the end, optionally followed by a comment of up
+    // to 64 KiB. Search backwards for a signature whose comment length makes
+    // it line up exactly with the end of the stream.
+    let floor = bytes.len().saturating_sub(22 + 0xffff);
+    let mut eocd = None;
+    let mut at = bytes.len() - 22;
+    loop {
+        if u32le(bytes, at) == Some(EOCD_SIG) {
+            let comment_len = u16le(bytes, at + 20).unwrap_or(0) as usize;
+            if at + 22 + comment_len == bytes.len() {
+                eocd = Some(at);
+                break;
+            }
+        }
+        if at == floor {
+            break;
+        }
+        at -= 1;
+    }
+    let eocd = eocd.ok_or_else(|| {
+        zip_error(
+            6151,
+            "zip is missing its end-of-central-directory record (truncated or not a zip)",
+        )
+    })?;
+
+    let disk = u16le(bytes, eocd + 4).unwrap_or(0);
+    let cd_disk = u16le(bytes, eocd + 6).unwrap_or(0);
+    let on_disk = u16le(bytes, eocd + 8).unwrap_or(0) as usize;
+    let count = u16le(bytes, eocd + 10).unwrap_or(0) as usize;
+    let cd_size = u32le(bytes, eocd + 12).unwrap_or(0) as usize;
+    let cd_offset = u32le(bytes, eocd + 16).unwrap_or(0) as usize;
+
+    if disk != 0 || cd_disk != 0 || on_disk != count {
+        return Err(zip_error(
+            6152,
+            "multi-disk zip archives are not supported",
+        ));
+    }
+    if count == 0xffff || cd_size == u32::MAX as usize || cd_offset == u32::MAX as usize {
+        return Err(zip_error(
+            6153,
+            "ZIP64 archives are not supported; repackage without ZIP64",
+        ));
+    }
+    if count > limits.max_entries {
+        return Err(zip_error(
+            6154,
+            format!(
+                "zip has {count} entries, above the {} limit",
+                limits.max_entries
+            ),
+        ));
+    }
+    let cd_end = cd_offset
+        .checked_add(cd_size)
+        .ok_or_else(|| zip_error(6155, "zip central directory offset overflows"))?;
+    if cd_end > eocd {
+        return Err(zip_error(
+            6156,
+            "zip central directory extends past the end record",
+        ));
+    }
+
+    let mut out = Vec::with_capacity(count.min(1024));
+    let mut pos = cd_offset;
+    let mut total: u64 = 0;
+
+    for index in 0..count {
+        if pos + 46 > cd_end {
+            return Err(zip_error(
+                6157,
+                format!("zip central directory is truncated at entry {index}"),
+            ));
+        }
+        if u32le(bytes, pos) != Some(CENTRAL_SIG) {
+            return Err(zip_error(
+                6158,
+                format!("zip central directory entry {index} has a bad signature"),
+            ));
+        }
+        let flags = u16le(bytes, pos + 8).unwrap_or(0);
+        let method = u16le(bytes, pos + 10).unwrap_or(0);
+        let crc = u32le(bytes, pos + 16).unwrap_or(0);
+        let comp_size = u32le(bytes, pos + 20).unwrap_or(0) as usize;
+        let uncomp_size = u32le(bytes, pos + 24).unwrap_or(0) as usize;
+        let name_len = u16le(bytes, pos + 28).unwrap_or(0) as usize;
+        let extra_len = u16le(bytes, pos + 30).unwrap_or(0) as usize;
+        let comment_len = u16le(bytes, pos + 32).unwrap_or(0) as usize;
+        let disk_start = u16le(bytes, pos + 34).unwrap_or(0);
+        let external = u32le(bytes, pos + 38).unwrap_or(0);
+        let local_off = u32le(bytes, pos + 42).unwrap_or(0) as usize;
+
+        if comp_size == u32::MAX as usize
+            || uncomp_size == u32::MAX as usize
+            || local_off == u32::MAX as usize
+        {
+            return Err(zip_error(
+                6159,
+                "ZIP64 entry sizes are not supported; repackage without ZIP64",
+            ));
+        }
+        if flags & 0x0001 != 0 {
+            return Err(zip_error(
+                6160,
+                "zip entry is encrypted; encrypted archives are not supported",
+            ));
+        }
+        if disk_start != 0 {
+            return Err(zip_error(6161, "multi-disk zip entries are not supported"));
+        }
+
+        let name_bytes = bytes
+            .get(pos + 46..pos + 46 + name_len)
+            .ok_or_else(|| zip_error(6162, "zip entry name runs past the directory"))?;
+        let name = std::str::from_utf8(name_bytes).map_err(|_| {
+            zip_error(
+                6163,
+                "zip entry name is not valid UTF-8; repackage with UTF-8 names",
+            )
+        })?;
+
+        // Unix mode lives in the high half of the external attributes. A mode
+        // of zero means the archive was written by a system without POSIX
+        // types, so fall back to the trailing-slash directory convention.
+        let mode = ((external >> 16) & 0xffff) as u32;
+        let file_type = mode & 0o170000;
+        let is_dir = name.ends_with('/')
+            || name.ends_with('\\')
+            || file_type == 0o040000;
+        if file_type != 0 && file_type != 0o100000 && file_type != 0o040000 {
+            return Err(zip_error(
+                6164,
+                format!("zip contains a non-regular entry ({name}); symlinks and devices are not permitted"),
+            ));
+        }
+
+        if uncomp_size as u64 > limits.max_entry_bytes {
+            return Err(zip_error(
+                6165,
+                format!(
+                    "zip entry {name} is {uncomp_size} bytes, above the per-entry limit"
+                ),
+            ));
+        }
+        total = total.saturating_add(uncomp_size as u64);
+        if total > limits.max_total_bytes {
+            return Err(zip_error(
+                6166,
+                format!(
+                    "zip expands beyond the {} byte limit",
+                    limits.max_total_bytes
+                ),
+            ));
+        }
+
+        // Validate the local header too: a mismatch between the two headers is
+        // a classic way to smuggle different data past a scanner.
+        if local_off + 30 > bytes.len() {
+            return Err(zip_error(6167, format!("zip entry {name} has a bad local header offset")));
+        }
+        if u32le(bytes, local_off) != Some(LOCAL_SIG) {
+            return Err(zip_error(
+                6168,
+                format!("zip entry {name} has a bad local header signature"),
+            ));
+        }
+        let local_flags = u16le(bytes, local_off + 6).unwrap_or(0);
+        let local_method = u16le(bytes, local_off + 8).unwrap_or(0);
+        let local_name_len = u16le(bytes, local_off + 26).unwrap_or(0) as usize;
+        let local_extra_len = u16le(bytes, local_off + 28).unwrap_or(0) as usize;
+        if local_flags != flags || local_method != method {
+            return Err(zip_error(
+                6169,
+                format!("zip entry {name} local header disagrees with the central directory"),
+            ));
+        }
+        let local_name = bytes
+            .get(local_off + 30..local_off + 30 + local_name_len)
+            .ok_or_else(|| zip_error(6170, format!("zip entry {name} local name is truncated")))?;
+        if local_name != name_bytes {
+            return Err(zip_error(
+                6171,
+                format!("zip entry name mismatch between headers for {name}"),
+            ));
+        }
+        let data_start = local_off
+            .checked_add(30)
+            .and_then(|v| v.checked_add(local_name_len))
+            .and_then(|v| v.checked_add(local_extra_len))
+            .ok_or_else(|| zip_error(6172, format!("zip entry {name} data offset overflows")))?;
+        let data_end = data_start
+            .checked_add(comp_size)
+            .ok_or_else(|| zip_error(6173, format!("zip entry {name} data size overflows")))?;
+        if data_end > bytes.len() {
+            return Err(zip_error(
+                6174,
+                format!("zip entry {name} data is truncated"),
+            ));
+        }
+        let compressed = &bytes[data_start..data_end];
+
+        let data = if is_dir {
+            Vec::new()
+        } else {
+            match method {
+                0 => {
+                    if comp_size != uncomp_size {
+                        return Err(zip_error(
+                            6175,
+                            format!("stored zip entry {name} has inconsistent sizes"),
+                        ));
+                    }
+                    compressed.to_vec()
+                }
+                8 => inflate_zip_entry(compressed, uncomp_size, name)?,
+                other => {
+                    return Err(zip_error(
+                        6176,
+                        format!(
+                            "zip entry {name} uses unsupported compression method {other} (only stored and deflate are supported)"
+                        ),
+                    ))
+                }
+            }
+        };
+
+        if !is_dir {
+            if data.len() != uncomp_size {
+                return Err(zip_error(
+                    6177,
+                    format!(
+                        "zip entry {name} expanded to {} bytes, header declared {uncomp_size}",
+                        data.len()
+                    ),
+                ));
+            }
+            let mut actual = flate2::Crc::new();
+            actual.update(&data);
+            if actual.sum() != crc {
+                return Err(zip_error(
+                    6178,
+                    format!("zip entry {name} failed its CRC-32 check"),
+                ));
+            }
+        }
+
+        out.push(TarEntry {
+            name: name.to_string(),
+            size: uncomp_size as u64,
+            kind: if is_dir {
+                TarEntryKind::Directory
+            } else {
+                TarEntryKind::File
+            },
+            data,
+        });
+        pos += 46 + name_len + extra_len + comment_len;
+    }
+
+    Ok(out)
+}
+
+/// Inflate one deflate-compressed zip entry, bounded to its declared size.
+fn inflate_zip_entry(compressed: &[u8], expected: usize, name: &str) -> ZenResult<Vec<u8>> {
+    let decoder = flate2::read::DeflateDecoder::new(compressed);
+    let mut out = Vec::with_capacity(expected.min(1024 * 1024));
+    decoder
+        .take(expected as u64 + 1)
+        .read_to_end(&mut out)
+        .map_err(|e| zip_error(6179, format!("zip entry {name} could not be inflated: {e}")))?;
+    if out.len() != expected {
+        return Err(zip_error(
+            6180,
+            format!(
+                "zip entry {name} inflated to {} bytes, header declared {expected}",
+                out.len()
+            ),
+        ));
+    }
+    Ok(out)
+}
+
+/// Decompress a zstd stream, bounded by the archive's total-expansion limit.
+fn unzstd(bytes: &[u8], limits: &ExtractionLimits) -> ZenResult<Vec<u8>> {
+    let decoder = zstd::stream::read::Decoder::new(bytes)
+        .map_err(|e| ZenError::new(Area::Sec, 6181, format!("invalid zstd stream: {e}")))?;
+    let mut out = Vec::new();
+    decoder
+        .take(limits.max_total_bytes + 1)
+        .read_to_end(&mut out)
+        .map_err(|e| ZenError::new(Area::Sec, 6182, format!("zstd decompression failed: {e}")))?;
+    if out.len() as u64 > limits.max_total_bytes {
+        return Err(ZenError::new(
+            Area::Sec,
+            6183,
+            format!(
+                "zstd stream expands beyond the {} byte limit",
+                limits.max_total_bytes
+            ),
+        )
+        .with_remediation("This may be a decompression bomb."));
+    }
+    Ok(out)
 }
 
 /// Minimal gzip (RFC 1952) decompressor: deflate stored + fixed + dynamic
@@ -934,6 +1270,8 @@ pub fn sniff_format(bytes: &[u8]) -> ArchiveFormat {
         ArchiveFormat::TarGz
     } else if bytes.len() >= 4 && &bytes[0..4] == b"PK\x03\x04" {
         ArchiveFormat::Zip
+    } else if bytes.len() >= 4 && &bytes[0..4] == [0x28, 0xb5, 0x2f, 0xfd] {
+        ArchiveFormat::TarZst
     } else if bytes.len() >= 265 && &bytes[257..262] == b"ustar" {
         ArchiveFormat::Tar
     } else {
@@ -998,6 +1336,83 @@ mod tests {
             out.extend(std::iter::repeat_n(0u8, pad));
         }
         out.extend(std::iter::repeat_n(0u8, 1024));
+        out
+    }
+
+    // --- zip building helpers (test-only) -----------------------------------
+
+    fn crc32(data: &[u8]) -> u32 {
+        let mut crc = flate2::Crc::new();
+        crc.update(data);
+        crc.sum()
+    }
+
+    fn deflate(data: &[u8]) -> Vec<u8> {
+        use flate2::write::DeflateEncoder;
+        use std::io::Write;
+        let mut encoder = DeflateEncoder::new(Vec::new(), flate2::Compression::default());
+        encoder.write_all(data).unwrap();
+        encoder.finish().unwrap()
+    }
+
+    /// Build a zip with `(name, data, deflate, unix_mode)` entries.
+    fn zip_with(entries: &[(&str, &[u8], bool, u32)]) -> Vec<u8> {
+        let mut out = Vec::new();
+        let mut central = Vec::new();
+        for (name, data, compressed_flag, mode) in entries {
+            let offset = out.len() as u32;
+            let compressed = if *compressed_flag {
+                deflate(data)
+            } else {
+                data.to_vec()
+            };
+            let method: u16 = if *compressed_flag { 8 } else { 0 };
+            let crc = crc32(data);
+
+            out.extend_from_slice(&0x0403_4b50u32.to_le_bytes());
+            out.extend_from_slice(&20u16.to_le_bytes());
+            out.extend_from_slice(&0x0800u16.to_le_bytes());
+            out.extend_from_slice(&method.to_le_bytes());
+            out.extend_from_slice(&0u16.to_le_bytes());
+            out.extend_from_slice(&0u16.to_le_bytes());
+            out.extend_from_slice(&crc.to_le_bytes());
+            out.extend_from_slice(&(compressed.len() as u32).to_le_bytes());
+            out.extend_from_slice(&(data.len() as u32).to_le_bytes());
+            out.extend_from_slice(&(name.len() as u16).to_le_bytes());
+            out.extend_from_slice(&0u16.to_le_bytes());
+            out.extend_from_slice(name.as_bytes());
+            out.extend_from_slice(&compressed);
+
+            central.extend_from_slice(&0x0201_4b50u32.to_le_bytes());
+            central.extend_from_slice(&0x031eu16.to_le_bytes());
+            central.extend_from_slice(&20u16.to_le_bytes());
+            central.extend_from_slice(&0x0800u16.to_le_bytes());
+            central.extend_from_slice(&method.to_le_bytes());
+            central.extend_from_slice(&0u16.to_le_bytes());
+            central.extend_from_slice(&0u16.to_le_bytes());
+            central.extend_from_slice(&crc.to_le_bytes());
+            central.extend_from_slice(&(compressed.len() as u32).to_le_bytes());
+            central.extend_from_slice(&(data.len() as u32).to_le_bytes());
+            central.extend_from_slice(&(name.len() as u16).to_le_bytes());
+            central.extend_from_slice(&0u16.to_le_bytes());
+            central.extend_from_slice(&0u16.to_le_bytes());
+            central.extend_from_slice(&0u16.to_le_bytes());
+            central.extend_from_slice(&0u16.to_le_bytes());
+            central.extend_from_slice(&(mode << 16).to_le_bytes());
+            central.extend_from_slice(&offset.to_le_bytes());
+            central.extend_from_slice(name.as_bytes());
+        }
+        let cd_offset = out.len() as u32;
+        out.extend_from_slice(&central);
+        let cd_size = out.len() as u32 - cd_offset;
+        out.extend_from_slice(&0x0605_4b50u32.to_le_bytes());
+        out.extend_from_slice(&0u16.to_le_bytes());
+        out.extend_from_slice(&0u16.to_le_bytes());
+        out.extend_from_slice(&(entries.len() as u16).to_le_bytes());
+        out.extend_from_slice(&(entries.len() as u16).to_le_bytes());
+        out.extend_from_slice(&cd_size.to_le_bytes());
+        out.extend_from_slice(&cd_offset.to_le_bytes());
+        out.extend_from_slice(&0u16.to_le_bytes());
         out
     }
 
@@ -1230,7 +1645,7 @@ mod tests {
     }
 
     #[test]
-    fn zip_and_zstd_are_refused_not_silently_accepted() {
+    fn malformed_zip_and_zstd_are_rejected() {
         let d = tmp();
         assert!(extract_archive(
             b"PK\x03\x04",
@@ -1246,6 +1661,126 @@ mod tests {
             &ExtractionLimits::default()
         )
         .is_err());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    // --- zip ----------------------------------------------------------------
+
+    #[test]
+    fn extracts_zip_stored_and_deflated_entries() {
+        let z = zip_with(&[
+            ("bin/tool", b"#!/bin/sh\necho hi\n", true, 0o100755),
+            ("plain.txt", b"stored payload", false, 0o100644),
+            ("empty/", b"", false, 0o040755),
+        ]);
+        let d = tmp();
+        let r = extract_archive(&z, ArchiveFormat::Zip, &d, &ExtractionLimits::default()).unwrap();
+        assert_eq!(r.entries, 3);
+        assert_eq!(
+            std::fs::read_to_string(d.join("bin/tool")).unwrap(),
+            "#!/bin/sh\necho hi\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(d.join("plain.txt")).unwrap(),
+            "stored payload"
+        );
+        assert!(!d.join("empty").exists() || d.join("empty").is_dir());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn zip_rejects_parent_traversal() {
+        let z = zip_with(&[("../evil.txt", b"bad", false, 0o100644)]);
+        let d = tmp();
+        let e = extract_archive(&z, ArchiveFormat::Zip, &d, &ExtractionLimits::default());
+        assert!(e.is_err());
+        assert!(!d.join("evil.txt").exists());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn zip_rejects_symlink_entries() {
+        let z = zip_with(&[("link", b"/etc/passwd", false, 0o120777)]);
+        let d = tmp();
+        let e = extract_archive(&z, ArchiveFormat::Zip, &d, &ExtractionLimits::default());
+        assert!(e.is_err());
+        assert!(format!("{}", e.unwrap_err()).contains("non-regular"));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn zip_rejects_entry_above_size_limit_before_writing() {
+        let z = zip_with(&[("big", b"0123456789", false, 0o100644)]);
+        let d = tmp();
+        let limits = ExtractionLimits {
+            max_entry_bytes: 4,
+            ..Default::default()
+        };
+        assert!(extract_archive(&z, ArchiveFormat::Zip, &d, &limits).is_err());
+        assert!(!d.join("big").exists());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn zip_rejects_crc_mismatch() {
+        let mut z = zip_with(&[("file.txt", b"payload", false, 0o100644)]);
+        // The stored payload appears once in the local data area; corrupting
+        // it must be caught by the CRC check, not written.
+        let pos = z
+            .windows(b"payload".len())
+            .position(|w| w == b"payload")
+            .unwrap();
+        z[pos] ^= 0xff;
+        let d = tmp();
+        let e = extract_archive(&z, ArchiveFormat::Zip, &d, &ExtractionLimits::default());
+        assert!(e.is_err());
+        assert!(format!("{}", e.unwrap_err()).contains("CRC"));
+        assert!(!d.join("file.txt").exists());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn zip_rejects_multi_disk_and_zip64_markers() {
+        let mut z = zip_with(&[("f", b"x", false, 0o100644)]);
+        let eocd = z.len() - 22;
+        z[eocd + 4] = 1; // disk number
+        let d = tmp();
+        assert!(extract_archive(&z, ArchiveFormat::Zip, &d, &ExtractionLimits::default()).is_err());
+
+        let mut z = zip_with(&[("f", b"x", false, 0o100644)]);
+        let eocd = z.len() - 22;
+        z[eocd + 10..eocd + 12].copy_from_slice(&0xffffu16.to_le_bytes());
+        assert!(extract_archive(&z, ArchiveFormat::Zip, &d, &ExtractionLimits::default()).is_err());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    // --- zstd ---------------------------------------------------------------
+
+    #[test]
+    fn extracts_tar_zst() {
+        let t = tar_with(&[("hello.txt", b'0', b"hello zstd")]);
+        let z = zstd::stream::encode_all(t.as_slice(), 3).unwrap();
+        let d = tmp();
+        let r =
+            extract_archive(&z, ArchiveFormat::TarZst, &d, &ExtractionLimits::default()).unwrap();
+        assert_eq!(r.entries, 1);
+        assert_eq!(
+            std::fs::read_to_string(d.join("hello.txt")).unwrap(),
+            "hello zstd"
+        );
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn zstd_expansion_is_bounded() {
+        let t = tar_with(&[("big", b'0', &vec![b'a'; 4096])]);
+        let z = zstd::stream::encode_all(t.as_slice(), 3).unwrap();
+        let d = tmp();
+        let limits = ExtractionLimits {
+            max_total_bytes: 1024,
+            ..Default::default()
+        };
+        assert!(extract_archive(&z, ArchiveFormat::TarZst, &d, &limits).is_err());
         let _ = std::fs::remove_dir_all(&d);
     }
 

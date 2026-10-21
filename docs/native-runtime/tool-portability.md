@@ -91,7 +91,7 @@ three, all usable with no external binary:
 
 | Tool | Engine | Provides |
 |---|---|---|
-| `dnsx` | `dns.resolve` | A/AAAA resolution via the OS resolver |
+| `dnsx` | `dns.resolve` | A/AAAA via the OS resolver; CNAME/MX/TXT/NS/SOA/PTR via the built-in wire client (`--type`), PTR reverse lookups |
 | `sysinfo` | `sysinfo` | CPU, memory, hostname |
 | `procinfo` | `process.info` | Process inspection by pid |
 

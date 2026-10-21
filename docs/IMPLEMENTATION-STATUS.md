@@ -39,10 +39,12 @@ Legend: **implemented** · **partial** (working with a stated limit) ·
 | Remote SSH execution, shells, transfers, forwarding | partial | `z-remote` | 12 unit tests plus a fake-OpenSSH CLI test. Strict host-key verification is always on; jump hosts, identity, port, scp upload/download and detached local port forwards are implemented. Remote shells run as daemon-owned command sessions. **Not implemented:** native SSH (uses system OpenSSH), durable remote daemons/sessions, SFTP protocol, web client. |
 | Web observer / sharing | partial | `z-web`, `z web serve` | Loopback-only HTTP server with separate read-only and optional write tokens, session list, plain-text screen snapshots (500 ms polling), optional input and an embedded no-ANSI page. 2 unit tests plus an end-to-end CLI test. **Not implemented:** xterm.js/colors/cursor fidelity, WebSocket/SSE streaming, TLS, multi-user/RBAC/IPv6+proxy deployment. |
 | Team sync, SSO/SCIM/RBAC, fleet policy | not started | — | Existing enterprise stubs are unrelated to the blueprint control plane. |
-| wasm plugin host | not started | — | `plugin` only validates manifests; no runtime. |
+| wasm plugin host | implemented | `plugin` | 8 unit tests. wasmtime host with a tiny host ABI (`log`, `clock`, `kv:read`, `kv:write`), fuel and linear-memory limits, no filesystem/network/process/secret imports, persisted per-plugin KV and audit records. Unknown imports fail instantiation. |
 | Model router (registry, cost/latency/quality/local-first, budgets, fallback, cache) | implemented | `z-models` | 24 unit tests plus an end-to-end mock-provider CLI test. Durable daily ledger with hard reservations, per-agent budgets, retries/fallback, persisted circuit breakers, prompt credential redaction before transport and secret-safe response caching. No streaming/cancellation or embeddings yet; the cache is process-local. |
 | Landlock/seccomp/cgroup/network namespace | not started | — | Existing hardening is privilege/rlimit based. |
-| Audit ledger Ed25519 signing | partial | `z-audit` remains hash-chained | Checkpoints, evidence and reports are Ed25519-signed. The general audit log is still SHA-256 chained without a signature. |
+| Audit ledger Ed25519 signing | implemented (opt-in) | `z-audit`, `z audit key` | Hash chain unchanged (signature excluded). `z audit key` creates a local Ed25519 key; subsequent events carry `signature`/`signer`. `z audit verify` checks both the chain and signatures, reports missing keys and fails on a bad signature. Unsigned legacy logs still verify as unsigned. |
+| Native DNS records | implemented | `z-native::dns` | Built-in wire-protocol client for A/AAAA/CNAME/MX/TXT/NS/SOA/PTR: UDP with TCP fallback on truncation, resolv.conf nameservers, compression-pointer loop/bounds checks, 10 offline packet/parser tests plus a local UDP end-to-end test. |
+| Package hashing and extraction | implemented | `z-package` | Streaming SHA-256/SHA-512 (no size cap) and a two-phase, bounds-checked extractor for tar, tar.gz, tar.zst and zip (stored + deflate, CRC-32 verified). Zip refuses traversal, symlinks, encryption, multi-disk and ZIP64 instead of guessing. 54 crate tests. |
 | Accessibility | partial | `tui`, CLI | `ui.high_contrast` uses a high-contrast palette; `ui.reduced_motion` suppresses the busy spinner; `z session replay --plain` and `z blocks show --plain` emit ANSI-free text; keyboard navigation exists. No semantic screen-reader mode or focus announcements. |
 | i18n / RTL | not started | — | UI strings are English-only; no translation catalog or RTL layout. |
 | Performance benchmarks (vtebench, DOOM-fire, 100k search) | not started | — | No benchmark harness or CI gate; no figures are claimed. |
@@ -66,6 +68,8 @@ z notebook  create|list|show|validate|run|runs|export
 z agent     adapters|profiles|list|dashboard|run|resume|fork|stop|approvals|approve|deny|trace
 z mcp       serve --agent <id> --profile <profile> --workspace <dir>
 z config    show|validate|paths|import|actions|keys|edit|init  (legacy get/set/secrets retained)
+z plugin    load|inspect|list|run|capabilities
+z audit     tail|verify|key
 z ui        terminal with shell-integration blocks and F11 block/search overlay
 ```
 
@@ -114,9 +118,11 @@ All destructive or agentic paths are deny-by-default and audited:
 9. **Security convenience is deliberate, not a scanner.** Target extraction
    from commands only recognizes URLs and IP literals; pass `--target` for
    hostnames. Break-glass is local and audited, not multi-party.
-10. **Signing is local-key signing.** It detects tampering by someone without
-   the key; a local attacker who can read `signing.key` can re-sign. The key is
-   stored `0600`.
+10. **Signing is local-key signing, and it is opt-in.** `z audit key` enables
+    signatures for future events; it detects tampering by someone without the
+    key, but a local attacker who can read the key can re-sign (both the audit
+    key and checkpoint/evidence keys are stored `0600`). Logs created before a
+    key exists remain unsigned and `z audit verify` says so.
 11. **No claim of performance.** No benchmarks were run for this pass, so the
     blueprint's latency/FPS/RAM targets remain unverified.
 
@@ -148,5 +154,7 @@ real JSON-RPC handshake and `z agent run` with a local adapter.
 4. Daemon-owned scrollback persistence and Windows transport.
 5. Hunk-level checkpoint accept/reject.
 6. Benchmark harness and CI regression gate.
-7. SSH domains, web observer tokens, plugin wasmtime host, and the enterprise
-   control plane — none of which are started.
+7. TLS inspection backend (the native TLS module still reports `Unsupported`
+   rather than fabricating a certificate chain) and an xterm.js/WebSocket web
+   observer.
+8. SSH domains, web observer tokens and the enterprise control plane.
