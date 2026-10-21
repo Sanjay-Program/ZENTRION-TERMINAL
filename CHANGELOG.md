@@ -2,6 +2,16 @@
 
 ## Unreleased — blueprint implementation
 
+### Performance and CI
+- Added the `z-bench` harness and a `Performance gate` CI job: VT parsing
+  (policy-checked and raw), screen search, block insert/FTS search, durable
+  audit append and CLI startup, with order-of-magnitude regression thresholds.
+  Reference Linux release figures: ~16 MiB/s parsing, 0.6 ms screen search,
+  ~5k blocks/s insert, ~5 ms FTS search, ~59k audit events/s, ~5 ms startup.
+- Added a production release profile (thin LTO, one codegen unit, stripped
+  symbols) and made `cargo clippy --workspace --all-targets -- -D warnings`
+  clean tree-wide.
+
 ### Plugin runtime, packaging, DNS and audit signing
 - Added a capability-gated wasmtime plugin host (`z plugin run`): only `log`,
   `clock`, `kv:read` and `kv:write` imports exist, fuel/linear-memory limits are

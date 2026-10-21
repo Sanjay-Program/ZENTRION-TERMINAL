@@ -1156,8 +1156,8 @@ fn handle_plugin(args: &[String], json_out: bool) -> z_core::error::ZenResult<()
                 std::io::stdin().read_to_string(&mut buffer).ok();
                 input = buffer;
             }
-            let validated = plugin::manager::validate_plugin(std::path::Path::new(path))
-                .map_err(|e| {
+            let validated =
+                plugin::manager::validate_plugin(std::path::Path::new(path)).map_err(|e| {
                     z_core::error::ZenError::new(
                         z_core::error::Area::Cfg,
                         102,
@@ -1196,10 +1196,7 @@ fn handle_plugin(args: &[String], json_out: bool) -> z_core::error::ZenResult<()
                         },
                     );
                     if json_out {
-                        println!(
-                            "{}",
-                            serde_json::to_string_pretty(&run).unwrap_or_default()
-                        );
+                        println!("{}", serde_json::to_string_pretty(&run).unwrap_or_default());
                     } else {
                         println!("plugin:    {}", run.plugin);
                         println!("fuel used: {}", run.fuel_used);
@@ -1254,8 +1251,8 @@ fn handle_plugin(args: &[String], json_out: bool) -> z_core::error::ZenResult<()
                     "usage: z plugin capabilities <path.wasm>",
                 )
             })?;
-            let validated = plugin::manager::validate_plugin(std::path::Path::new(path))
-                .map_err(|e| {
+            let validated =
+                plugin::manager::validate_plugin(std::path::Path::new(path)).map_err(|e| {
                     z_core::error::ZenError::new(
                         z_core::error::Area::Cfg,
                         102,

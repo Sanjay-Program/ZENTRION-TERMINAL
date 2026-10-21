@@ -227,7 +227,8 @@ async fn handle(mut stream: TcpStream, state: Arc<ServerState>) -> std::io::Resu
 
 /// Parse the Content-Length header from an already-read header block.
 fn content_length_from_headers(head: &[u8]) -> Result<usize, String> {
-    let head = std::str::from_utf8(head).map_err(|_| "request headers are not UTF-8".to_string())?;
+    let head =
+        std::str::from_utf8(head).map_err(|_| "request headers are not UTF-8".to_string())?;
     let mut length = 0usize;
     for line in head.split("\r\n").skip(1) {
         let Some((name, value)) = line.split_once(':') else {
@@ -482,7 +483,7 @@ async fn respond(
     };
     let response = format!(
         "HTTP/1.1 {status} {reason}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nContent-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:\r\nReferrer-Policy: no-referrer\r\nConnection: close\r\n\r\n{body}",
-        body.as_bytes().len()
+        body.len()
     );
     stream.write_all(response.as_bytes()).await?;
     stream.shutdown().await.ok();

@@ -331,7 +331,7 @@ mod tests {
         assert!(!authorize(&scope(), "example.org", None).allowed());
         assert!(authorize(&scope(), "a.b.example.org", None).allowed());
         assert!(authorize(&scope(), "10.0.0.7", None).allowed());
-        assert!(authorize(&scope(), "10.0.1.7", None).allowed() == false);
+        assert!(!authorize(&scope(), "10.0.1.7", None).allowed());
     }
 
     #[test]

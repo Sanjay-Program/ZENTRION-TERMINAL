@@ -160,7 +160,7 @@ mod tests {
             b"\x1b]133;A\x07$ \x1b]133;B\x07ls\r\n\x1b]133;C\x07a.txt\r\n\x1b]133;D;0\x07",
         );
         assert_eq!(events.len(), 4);
-        assert_eq!(terminal.contents().contains("a.txt"), true);
+        assert!(terminal.contents().contains("a.txt"));
         assert_eq!(terminal.marks().len(), 4);
     }
 

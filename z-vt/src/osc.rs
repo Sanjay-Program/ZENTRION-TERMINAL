@@ -282,7 +282,7 @@ impl Performer<'_> {
     fn handle_osc9(&mut self, params: &[&[u8]]) {
         // OSC 9 ; body                 -> notification
         // OSC 9 ; 4 ; state [; pct]   -> progress
-        if params.get(1).map(|p| *p) == Some(b"4") {
+        if params.get(1).copied() == Some(b"4") {
             let state = params
                 .get(2)
                 .and_then(|v| std::str::from_utf8(v).ok())
@@ -324,7 +324,7 @@ impl Performer<'_> {
             .map(|v| self.text(v))
             .filter(|v| !v.is_empty())
             .unwrap_or_else(|| "c".to_string());
-        let encoded = params.get(2).map(|v| *v).unwrap_or_default();
+        let encoded = params.get(2).copied().unwrap_or_default();
         if encoded.len() > self.policy.clipboard_limit.saturating_mul(2) {
             self.push(OscEvent::OscRejected {
                 code: 52,
@@ -444,9 +444,7 @@ pub fn sanitize_text(raw: &[u8], max_bytes: usize) -> String {
     let text = String::from_utf8_lossy(raw);
     let mut out = String::new();
     for ch in text.chars() {
-        let ch = if ch.is_control() {
-            ' '
-        } else if ch == '\u{1b}' {
+        let ch = if ch.is_control() || ch == '\u{1b}' {
             ' '
         } else {
             ch

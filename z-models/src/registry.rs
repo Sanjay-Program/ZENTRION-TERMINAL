@@ -436,11 +436,12 @@ mod tests {
     use super::*;
 
     fn config() -> ModelsConfig {
-        let mut config = ModelsConfig::default();
-        config.default = "local/qwen2.5-coder:7b".into();
-        config.fallback = vec!["openai/gpt-4o-mini".into()];
-        config.allow_cloud = true;
-        config
+        ModelsConfig {
+            default: "local/qwen2.5-coder:7b".into(),
+            fallback: vec!["openai/gpt-4o-mini".into()],
+            allow_cloud: true,
+            ..Default::default()
+        }
     }
 
     #[test]

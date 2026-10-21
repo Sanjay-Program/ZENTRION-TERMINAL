@@ -1386,13 +1386,12 @@ impl App {
             }
         }
         for (block, output) in &self.persisted_blocks {
-            if query.is_empty()
+            if (query.is_empty()
                 || block.command.to_ascii_lowercase().contains(&query)
-                || output.to_ascii_lowercase().contains(&query)
+                || output.to_ascii_lowercase().contains(&query))
+                && !blocks.iter().any(|(local, _)| local.id == block.id)
             {
-                if !blocks.iter().any(|(local, _)| local.id == block.id) {
-                    blocks.push((block.clone(), output.clone()));
-                }
+                blocks.push((block.clone(), output.clone()));
             }
         }
         blocks
@@ -1996,10 +1995,9 @@ fn open_url(target: &str) -> std::io::Result<()> {
     if status.success() {
         Ok(())
     } else {
-        Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("{program} exited with {status}"),
-        ))
+        Err(std::io::Error::other(format!(
+            "{program} exited with {status}"
+        )))
     }
 }
 

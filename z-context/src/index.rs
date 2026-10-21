@@ -550,7 +550,7 @@ impl RepoIndex {
             )
             .optional()
             .map_err(|e| e.to_string())?;
-        Ok(compressed.map(|bytes| gunzip(&bytes)).transpose()?)
+        compressed.map(|bytes| gunzip(&bytes)).transpose()
     }
 
     pub fn file_lines(&self, path: &str) -> Result<Option<Vec<String>>, String> {
@@ -675,12 +675,12 @@ fn is_ignored_dir(name: &str, options: &IndexOptions) -> bool {
 pub fn is_ignored(relative: &str, options: &IndexOptions) -> bool {
     let name = relative.rsplit('/').next().unwrap_or(relative);
     let lower = name.to_ascii_lowercase();
-    if !options.include_hidden {
-        if relative.split('/').any(|part| {
+    if !options.include_hidden
+        && relative.split('/').any(|part| {
             part.starts_with('.') && part != ".github" && !relative.starts_with(".github/")
-        }) {
-            return true;
-        }
+        })
+    {
+        return true;
     }
     // Never index credential-shaped files even if the user removed the default.
     if lower == ".env"
@@ -871,7 +871,7 @@ mod tests {
         let hits = index.search("payment_total", 10).unwrap();
         assert!(hits.iter().any(|hit| hit.path == "src/lib.rs"));
         assert!(index.search("\"unbalanced", 10).unwrap().is_empty());
-        assert!(index.search("payment totals", 10).unwrap().len() >= 1);
+        assert!(!index.search("payment totals", 10).unwrap().is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

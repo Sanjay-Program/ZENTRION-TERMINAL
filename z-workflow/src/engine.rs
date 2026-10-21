@@ -726,7 +726,7 @@ fn execute_once(
             });
         let (program, args) = shell_command(&shell, &command);
         let outcome = run_process(&program, &args, &cwd, &env, timeout, None, ctx.max_output);
-        apply_outcome(&mut result, outcome, &mut secrets);
+        apply_outcome(&mut result, outcome, &secrets);
         if result.succeeded() {
             audit.push(audit_record(
                 "workflow.step.run",
@@ -820,7 +820,7 @@ fn execute_once(
             None,
             ctx.max_output,
         );
-        apply_outcome(&mut result, outcome, &mut secrets);
+        apply_outcome(&mut result, outcome, &secrets);
         audit.push(audit_record(
             "workflow.step.agent",
             &step.id,
@@ -1290,7 +1290,7 @@ fn read_limited(
     })
 }
 
-fn apply_outcome(result: &mut StepResult, outcome: ProcOutcome, secrets: &mut Vec<String>) {
+fn apply_outcome(result: &mut StepResult, outcome: ProcOutcome, secrets: &[String]) {
     result.exit_code = outcome.exit_code;
     result.stdout = scrub(&outcome.stdout, secrets);
     result.stderr = scrub(&outcome.stderr, secrets);

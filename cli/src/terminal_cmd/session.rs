@@ -65,8 +65,8 @@ pub fn session(args: &[String], json_out: bool) -> ZenResult<()> {
                 Ok(())
             } else {
                 println!(
-                    "{:<24} {:<10} {:<8} {:<20} {}",
-                    "ID", "STATUS", "PID", "SHELL", "CWD"
+                    "{:<24} {:<10} {:<8} {:<20} CWD",
+                    "ID", "STATUS", "PID", "SHELL"
                 );
                 for session in sessions {
                     println!(
@@ -499,7 +499,7 @@ pub fn workspace(args: &[String], json_out: bool) -> ZenResult<()> {
                 println!("No saved workspaces in {}.", store.dir().display());
                 Ok(())
             } else {
-                println!("{:<20} {:>6} {:>6}  {}", "NAME", "TABS", "PANES", "PATH");
+                println!("{:<20} {:>6} {:>6}  PATH", "NAME", "TABS", "PANES");
                 for workspace in workspaces {
                     println!(
                         "{:<20} {:>6} {:>6}  {}",

@@ -77,8 +77,8 @@ pub fn agent(args: &[String], json_out: bool) -> ZenResult<()> {
                 return print_json(&json!({"adapters": adapters}));
             }
             println!(
-                "{:<16} {:<18} {:<10} {:<28} {}",
-                "ID", "NAME", "DETECTED", "EVENT MODE", "PROFILE"
+                "{:<16} {:<18} {:<10} {:<28} PROFILE",
+                "ID", "NAME", "DETECTED", "EVENT MODE"
             );
             for adapter in &adapters {
                 println!(
@@ -158,8 +158,8 @@ pub fn agent(args: &[String], json_out: bool) -> ZenResult<()> {
                 return Ok(());
             }
             println!(
-                "{:<26} {:<14} {:<18} {:<10} {:>9}  {}",
-                "RUN", "AGENT", "STATE", "PROFILE", "ELAPSED", "WORKSPACE"
+                "{:<26} {:<14} {:<18} {:<10} {:>9}  WORKSPACE",
+                "RUN", "AGENT", "STATE", "PROFILE", "ELAPSED"
             );
             for run in runs {
                 println!(
@@ -595,7 +595,7 @@ fn stream_daemon(
         }
         if output.len() > written {
             if !quiet {
-                lock.write_all(output[written..].as_bytes())
+                lock.write_all(&output.as_bytes()[written..])
                     .map_err(|e| map_err("cannot write agent output", e))?;
                 lock.flush().ok();
             }
@@ -643,7 +643,7 @@ fn stream_daemon_interactive(client: &z_session::SessionClient, id: &str) -> Zen
             written = 0;
         }
         if output.len() > written {
-            lock.write_all(output[written..].as_bytes())
+            lock.write_all(&output.as_bytes()[written..])
                 .map_err(|e| map_err("cannot write agent output", e))?;
             lock.flush().ok();
             written = output.len();
@@ -728,8 +728,8 @@ fn list_daemon(
     }
     if detailed {
         println!(
-            "{:<26} {:<14} {:<18} {:<10} {:<14} {:>9} {:>7}  {}",
-            "RUN", "AGENT", "STATE", "MODEL", "PROFILE", "ELAPSED", "QUEUED", "WORKSPACE"
+            "{:<26} {:<14} {:<18} {:<10} {:<14} {:>9} {:>7}  WORKSPACE",
+            "RUN", "AGENT", "STATE", "MODEL", "PROFILE", "ELAPSED", "QUEUED"
         );
         for run in &runs {
             println!(
@@ -761,8 +761,8 @@ fn list_daemon(
         }
     } else {
         println!(
-            "{:<26} {:<14} {:<18} {:<10} {:>9}  {}",
-            "RUN", "AGENT", "STATE", "PROFILE", "ELAPSED", "WORKSPACE"
+            "{:<26} {:<14} {:<18} {:<10} {:>9}  WORKSPACE",
+            "RUN", "AGENT", "STATE", "PROFILE", "ELAPSED"
         );
         for run in &runs {
             println!(
@@ -794,7 +794,7 @@ fn stream_until_done(
         let output = handle.output();
         if output.len() > written {
             if !quiet {
-                lock.write_all(output[written..].as_bytes())
+                lock.write_all(&output.as_bytes()[written..])
                     .map_err(|e| map_err("cannot write agent output", e))?;
                 lock.flush().ok();
             }
@@ -804,7 +804,7 @@ fn stream_until_done(
         }
         if info.terminal() {
             if !quiet && output.len() > written {
-                let _ = lock.write_all(output[written..].as_bytes());
+                let _ = lock.write_all(&output.as_bytes()[written..]);
             }
             return Ok(());
         }
@@ -825,7 +825,7 @@ fn stream_interactive(handle: &z_agents::AgentHandle) -> ZenResult<()> {
         let info = handle.info();
         let output = handle.output();
         if output.len() > written {
-            lock.write_all(output[written..].as_bytes())
+            lock.write_all(&output.as_bytes()[written..])
                 .map_err(|e| map_err("cannot write agent output", e))?;
             lock.flush().ok();
             written = output.len();

@@ -362,11 +362,7 @@ impl McpServer {
         if !cwd.starts_with(self.broker.workspace()) {
             return Err("cwd escapes the workspace".into());
         }
-        let command_line = if shell {
-            format!("{} {}", program, arguments.join(" "))
-        } else {
-            format!("{} {}", program, arguments.join(" "))
-        };
+        let command_line = format!("{} {}", program, arguments.join(" "));
         if shell {
             self.approval_gate(
                 "agent.shell",

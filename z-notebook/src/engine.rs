@@ -133,19 +133,10 @@ impl ShellExecutor for SystemShell {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct RunOptions {
     pub params: BTreeMap<String, String>,
     pub workdir: Option<PathBuf>,
-}
-
-impl Default for RunOptions {
-    fn default() -> Self {
-        Self {
-            params: BTreeMap::new(),
-            workdir: None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -635,7 +626,7 @@ pub fn export_markdown(notebook: &Notebook, report: &RunReport) -> String {
         if let Some(source) = notebook.cells.iter().find(|item| item.id == cell.id) {
             out.push_str("```");
             out.push_str(if cell.kind == "shell" { "sh" } else { "text" });
-            out.push_str("\n");
+            out.push('\n');
             out.push_str(&source.source);
             out.push_str("\n```\n\n");
         }

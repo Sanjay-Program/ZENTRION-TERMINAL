@@ -202,9 +202,7 @@ pub fn next_word(line: &str, col: usize) -> usize {
 pub fn prev_word(line: &str, col: usize) -> usize {
     let bytes = line.as_bytes();
     let mut i = col.min(bytes.len());
-    if i > 0 {
-        i -= 1;
-    }
+    i = i.saturating_sub(1);
     while i > 0 && !is_word_byte(bytes[i]) {
         i -= 1;
     }

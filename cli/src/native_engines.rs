@@ -60,9 +60,9 @@ fn dns_resolve(args: Vec<String>, json_out: bool) -> ZenResult<()> {
                 i += 2;
             }
             "--type" | "-t" => {
-                let val = args
-                    .get(i + 1)
-                    .ok_or_else(|| ZenError::new(Area::Cfg, 310, "--type requires a record type"))?;
+                let val = args.get(i + 1).ok_or_else(|| {
+                    ZenError::new(Area::Cfg, 310, "--type requires a record type")
+                })?;
                 record = Some(z_native::dns::RecordType::parse(val).ok_or_else(|| {
                     ZenError::new(
                         Area::Cfg,
@@ -97,8 +97,13 @@ fn dns_resolve(args: Vec<String>, json_out: bool) -> ZenResult<()> {
         }
     }
 
-    let host =
-        host.ok_or_else(|| ZenError::new(Area::Cfg, 301, "usage: dnsx [--port N] [--type TYPE] <hostname>"))?;
+    let host = host.ok_or_else(|| {
+        ZenError::new(
+            Area::Cfg,
+            301,
+            "usage: dnsx [--port N] [--type TYPE] <hostname>",
+        )
+    })?;
 
     let outcome = match record {
         Some(record) => z_native::dns::lookup(&host, record),

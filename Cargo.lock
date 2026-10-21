@@ -5275,6 +5275,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "z-bench"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde_json",
+ "vt100",
+ "z-audit",
+ "z-blocks",
+ "z-core",
+ "z-vt",
+]
+
+[[package]]
 name = "z-blocks"
 version = "0.1.0"
 dependencies = [

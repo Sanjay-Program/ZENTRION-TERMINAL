@@ -196,14 +196,14 @@ fn js_symbol(line: &str, number: usize, out: &mut Vec<Symbol>) {
     if name.is_empty() || name.len() > 200 {
         return;
     }
-    if line.contains("function") || line.contains("=>") || line.trim_end().ends_with('{') {
-        if !line.contains('=') || line.contains("=>") || line.contains("function") {
-            out.push(Symbol {
-                name: name.to_string(),
-                kind: "declaration".into(),
-                line: number,
-            });
-        }
+    if (line.contains("function") || line.contains("=>") || line.trim_end().ends_with('{'))
+        && (!line.contains('=') || line.contains("=>") || line.contains("function"))
+    {
+        out.push(Symbol {
+            name: name.to_string(),
+            kind: "declaration".into(),
+            line: number,
+        });
     }
 }
 

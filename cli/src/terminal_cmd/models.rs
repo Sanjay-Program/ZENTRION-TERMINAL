@@ -53,8 +53,8 @@ pub fn models(args: &[String], json_out: bool) -> ZenResult<()> {
                 }));
             }
             println!(
-                "{:<16} {:<10} {:<24} {:>9} {:>9} {:>8} {:<6} {}",
-                "PROVIDER", "KIND", "MODEL", "IN $/M", "OUT $/M", "CONTEXT", "KEY", "QUALITY"
+                "{:<16} {:<10} {:<24} {:>9} {:>9} {:>8} {:<6} QUALITY",
+                "PROVIDER", "KIND", "MODEL", "IN $/M", "OUT $/M", "CONTEXT", "KEY"
             );
             for provider in registry.providers() {
                 for model in &provider.models {

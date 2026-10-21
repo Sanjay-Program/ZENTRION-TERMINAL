@@ -54,10 +54,7 @@ impl SshTarget {
             let (host, tail) = rest
                 .split_once(']')
                 .ok_or_else(|| RemoteError::InvalidTarget("unterminated IPv6 host".into()))?;
-            let port = tail
-                .strip_prefix(':')
-                .map(|port| parse_port(port))
-                .transpose()?;
+            let port = tail.strip_prefix(':').map(parse_port).transpose()?;
             (host.to_string(), port)
         } else if let Some((host, port)) = rest.rsplit_once(':') {
             if port.chars().all(|c| c.is_ascii_digit()) && !port.is_empty() {

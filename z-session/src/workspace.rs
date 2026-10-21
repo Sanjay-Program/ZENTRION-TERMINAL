@@ -20,7 +20,7 @@ pub enum Direction {
     Vertical,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct Pane {
     pub cwd: Option<String>,
@@ -36,23 +36,6 @@ pub struct Pane {
     /// Explicit opt-in to run `command` on restore.
     pub auto_run: bool,
     pub title: Option<String>,
-}
-
-impl Default for Pane {
-    fn default() -> Self {
-        Self {
-            cwd: None,
-            command: None,
-            profile: None,
-            agent: None,
-            split: None,
-            panes: Vec::new(),
-            layout: None,
-            weight: None,
-            auto_run: false,
-            title: None,
-        }
-    }
 }
 
 impl Pane {

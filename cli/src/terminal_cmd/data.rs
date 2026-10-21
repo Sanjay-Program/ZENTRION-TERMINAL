@@ -319,7 +319,7 @@ pub fn context(args: &[String], json_out: bool) -> ZenResult<()> {
             let budget = parsed
                 .value("--budget")
                 .and_then(|value| value.parse::<usize>().ok())
-                .unwrap_or_else(|| (context_config.model_context_tokens as f64 * 0.6) as usize);
+                .unwrap_or((context_config.model_context_tokens as f64 * 0.6) as usize);
             let mut query = z_context::ContextQuery::new(query, budget);
             query.pins = parsed.values_of("--pin").to_vec();
             query.max_items = parsed

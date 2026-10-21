@@ -251,8 +251,8 @@ fn extract(lines: &[String], start: (usize, usize), end: (usize, usize)) -> Stri
         return chars[from..to].iter().collect();
     }
     let mut out = String::new();
-    for row in start.0..=end.0 {
-        let chars: Vec<char> = lines[row].chars().collect();
+    for (row, line) in lines.iter().enumerate().take(end.0 + 1).skip(start.0) {
+        let chars: Vec<char> = line.chars().collect();
         if row == start.0 {
             let from = start.1.min(chars.len());
             out.extend(&chars[from..]);

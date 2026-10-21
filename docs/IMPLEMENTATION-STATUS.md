@@ -47,7 +47,7 @@ Legend: **implemented** · **partial** (working with a stated limit) ·
 | Package hashing and extraction | implemented | `z-package` | Streaming SHA-256/SHA-512 (no size cap) and a two-phase, bounds-checked extractor for tar, tar.gz, tar.zst and zip (stored + deflate, CRC-32 verified). Zip refuses traversal, symlinks, encryption, multi-disk and ZIP64 instead of guessing. 54 crate tests. |
 | Accessibility | partial | `tui`, CLI | `ui.high_contrast` uses a high-contrast palette; `ui.reduced_motion` suppresses the busy spinner; `z session replay --plain` and `z blocks show --plain` emit ANSI-free text; keyboard navigation exists. No semantic screen-reader mode or focus announcements. |
 | i18n / RTL | not started | — | UI strings are English-only; no translation catalog or RTL layout. |
-| Performance benchmarks (vtebench, DOOM-fire, 100k search) | not started | — | No benchmark harness or CI gate; no figures are claimed. |
+| Performance benchmarks | implemented | `bench`, CI job `Performance gate` | `z-bench` measures VT parse throughput, raw parser, screen search, block insert/FTS search, audit append and CLI startup; `--check` enforces order-of-magnitude thresholds in CI. Linux release reference: ~11 MiB/s policy-checked parsing, 0.6–0.9 ms screen search, ~4k blocks/s insert, ~5 ms FTS search, ~55k audit events/s, ~6 ms `z version` warm. No GPU/FPS claim. |
 
 ---
 

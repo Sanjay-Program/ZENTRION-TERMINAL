@@ -260,7 +260,7 @@ pub fn estimate_tokens(messages: &[ChatMessage]) -> u64 {
 }
 
 pub fn estimate_tokens_text(text: &str) -> u64 {
-    (text.chars().count() as u64 + 3) / 4 + 1
+    (text.chars().count() as u64).div_ceil(4) + 1
 }
 
 #[cfg(test)]

@@ -70,6 +70,19 @@ jobs:
           "$OLDPWD/$BIN" init . --name ci
           "$OLDPWD/$BIN" install hello-zen --dry-run
 
+
+  bench:
+    name: Performance gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build release CLI
+        run: cargo build --release -p z-cli --bin z
+      - name: Benchmark and enforce thresholds
+        run: Z_BIN=target/release/z cargo run --release -p z-bench -- --check
+
   audit:
     name: Dependency audit
     runs-on: ubuntu-latest

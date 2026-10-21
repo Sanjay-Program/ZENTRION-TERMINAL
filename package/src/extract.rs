@@ -592,7 +592,10 @@ fn parse_zip(bytes: &[u8], limits: &ExtractionLimits) -> ZenResult<Vec<TarEntry>
     const LOCAL_SIG: u32 = 0x0403_4b50;
 
     if bytes.len() < 22 {
-        return Err(zip_error(6150, "zip stream is too short to contain a directory"));
+        return Err(zip_error(
+            6150,
+            "zip stream is too short to contain a directory",
+        ));
     }
     // The EOCD record sits at the end, optionally followed by a comment of up
     // to 64 KiB. Search backwards for a signature whose comment length makes
@@ -628,10 +631,7 @@ fn parse_zip(bytes: &[u8], limits: &ExtractionLimits) -> ZenResult<Vec<TarEntry>
     let cd_offset = u32le(bytes, eocd + 16).unwrap_or(0) as usize;
 
     if disk != 0 || cd_disk != 0 || on_disk != count {
-        return Err(zip_error(
-            6152,
-            "multi-disk zip archives are not supported",
-        ));
+        return Err(zip_error(6152, "multi-disk zip archives are not supported"));
     }
     if count == 0xffff || cd_size == u32::MAX as usize || cd_offset == u32::MAX as usize {
         return Err(zip_error(
@@ -721,9 +721,7 @@ fn parse_zip(bytes: &[u8], limits: &ExtractionLimits) -> ZenResult<Vec<TarEntry>
         // types, so fall back to the trailing-slash directory convention.
         let mode = ((external >> 16) & 0xffff) as u32;
         let file_type = mode & 0o170000;
-        let is_dir = name.ends_with('/')
-            || name.ends_with('\\')
-            || file_type == 0o040000;
+        let is_dir = name.ends_with('/') || name.ends_with('\\') || file_type == 0o040000;
         if file_type != 0 && file_type != 0o100000 && file_type != 0o040000 {
             return Err(zip_error(
                 6164,
@@ -734,9 +732,7 @@ fn parse_zip(bytes: &[u8], limits: &ExtractionLimits) -> ZenResult<Vec<TarEntry>
         if uncomp_size as u64 > limits.max_entry_bytes {
             return Err(zip_error(
                 6165,
-                format!(
-                    "zip entry {name} is {uncomp_size} bytes, above the per-entry limit"
-                ),
+                format!("zip entry {name} is {uncomp_size} bytes, above the per-entry limit"),
             ));
         }
         total = total.saturating_add(uncomp_size as u64);
@@ -753,7 +749,10 @@ fn parse_zip(bytes: &[u8], limits: &ExtractionLimits) -> ZenResult<Vec<TarEntry>
         // Validate the local header too: a mismatch between the two headers is
         // a classic way to smuggle different data past a scanner.
         if local_off + 30 > bytes.len() {
-            return Err(zip_error(6167, format!("zip entry {name} has a bad local header offset")));
+            return Err(zip_error(
+                6167,
+                format!("zip entry {name} has a bad local header offset"),
+            ));
         }
         if u32le(bytes, local_off) != Some(LOCAL_SIG) {
             return Err(zip_error(
@@ -1266,11 +1265,11 @@ fn inflate(data: &[u8], limits: &ExtractionLimits) -> ZenResult<Vec<u8>> {
 /// A helper used by tests and callers who just want "is this a plausible
 /// archive" without extracting.
 pub fn sniff_format(bytes: &[u8]) -> ArchiveFormat {
-    if bytes.len() >= 2 && bytes[0] == 0x1f && bytes[1] == 0x8b {
+    if bytes.starts_with(&[0x1f, 0x8b]) {
         ArchiveFormat::TarGz
-    } else if bytes.len() >= 4 && &bytes[0..4] == b"PK\x03\x04" {
+    } else if bytes.starts_with(b"PK\x03\x04") {
         ArchiveFormat::Zip
-    } else if bytes.len() >= 4 && &bytes[0..4] == [0x28, 0xb5, 0x2f, 0xfd] {
+    } else if bytes.starts_with(&[0x28, 0xb5, 0x2f, 0xfd]) {
         ArchiveFormat::TarZst
     } else if bytes.len() >= 265 && &bytes[257..262] == b"ustar" {
         ArchiveFormat::Tar

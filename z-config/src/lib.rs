@@ -271,16 +271,16 @@ impl Config {
         if self.session.scrollback_lines < 100 {
             push("session.scrollback_lines", "must be at least 100".into());
         }
-        if self.remote.web_enabled {
-            if !self.remote.web_bind.starts_with("127.")
-                && !self.remote.web_bind.starts_with("localhost")
-                && !self.remote.web_bind.starts_with("[::1]")
-            {
-                push(
-                    "remote.web_bind",
-                    "the web client binds to loopback unless explicitly overridden in the policy layer".into(),
-                );
-            }
+        if self.remote.web_enabled
+            && !self.remote.web_bind.starts_with("127.")
+            && !self.remote.web_bind.starts_with("localhost")
+            && !self.remote.web_bind.starts_with("[::1]")
+        {
+            push(
+                "remote.web_bind",
+                "the web client binds to loopback unless explicitly overridden in the policy layer"
+                    .into(),
+            );
         }
         if self.workflow.allow_http && self.workflow.http_allowlist.is_empty() {
             push(

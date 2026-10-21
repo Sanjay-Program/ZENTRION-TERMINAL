@@ -889,7 +889,7 @@ fn scan(root: &Path, options: &CheckpointOptions) -> Result<Scanned> {
             #[cfg(unix)]
             {
                 use std::os::unix::fs::MetadataExt;
-                Some((metadata.mode() & 0o777) as u32)
+                Some(metadata.mode() & 0o777)
             }
             #[cfg(not(unix))]
             {

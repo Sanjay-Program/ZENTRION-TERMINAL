@@ -140,7 +140,12 @@ PTY, tabs, splits, and a local control plane.
 - **Model streaming is not implemented.** Model completions wait for the full
   response; there is no token stream or cancellation, and response caching is
   process-local. Embeddings are not implemented.
-- **No performance numbers are claimed.** No benchmark harness has been run.
+- **Performance is measured, not promised.** The `z-bench` harness gates VT
+  parsing, screen search, block insert/FTS search, audit append and CLI
+  startup in CI. Current Linux release figures: ~11 MiB/s policy-checked VT
+  parsing, sub-millisecond screen search, ~4k block inserts/s, ~5 ms block
+  search and ~6 ms `z version` startup. Figures vary by machine; thresholds
+  fail only on order-of-magnitude regressions.
 - Plugins run in a capability-gated wasmtime host: only `log`, `clock`,
   `kv:read` and `kv:write` imports exist, fuel and linear-memory limits are
   enforced, and there is no filesystem, network, process or secret access.

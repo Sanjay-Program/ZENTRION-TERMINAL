@@ -191,10 +191,9 @@ pub fn lookup_with_server(
         return DnsOutcome::Failed("empty hostname".to_string());
     }
     match query_server(server, &name, record, timeout) {
-        Ok(records) if records.is_empty() => DnsOutcome::Failed(format!(
-            "no {} records for {name}",
-            record.as_str()
-        )),
+        Ok(records) if records.is_empty() => {
+            DnsOutcome::Failed(format!("no {} records for {name}", record.as_str()))
+        }
         Ok(records) => DnsOutcome::Records(records),
         Err(QueryError::Fatal(message)) | Err(QueryError::Retry(message)) => {
             DnsOutcome::Failed(message)
@@ -328,7 +327,11 @@ fn udp_exchange(
     request: &[u8],
     timeout: Duration,
 ) -> Result<Vec<u8>, QueryError> {
-    let bind = if server.is_ipv6() { "[::]:0" } else { "0.0.0.0:0" };
+    let bind = if server.is_ipv6() {
+        "[::]:0"
+    } else {
+        "0.0.0.0:0"
+    };
     let socket = UdpSocket::bind(bind)
         .map_err(|e| QueryError::Retry(format!("cannot open UDP socket: {e}")))?;
     socket
@@ -656,10 +659,7 @@ mod tests {
     #[test]
     fn empty_host_fails_cleanly() {
         assert!(matches!(resolve_addresses("", 80), DnsOutcome::Failed(_)));
-        assert!(matches!(
-            lookup("", RecordType::Mx),
-            DnsOutcome::Failed(_)
-        ));
+        assert!(matches!(lookup("", RecordType::Mx), DnsOutcome::Failed(_)));
     }
 
     #[test]
@@ -713,12 +713,7 @@ mod tests {
         assert!(build_query(1, "", 1).is_err());
         assert!(build_query(1, "a..b", 1).is_err());
         assert!(build_query(1, &"a".repeat(64), 1).is_err());
-        assert!(build_query(
-            1,
-            &(0..60).map(|_| "abcd").collect::<Vec<_>>().join("."),
-            1
-        )
-        .is_err());
+        assert!(build_query(1, &(0..60).map(|_| "abcd").collect::<Vec<_>>().join("."), 1).is_err());
     }
 
     #[test]

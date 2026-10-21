@@ -122,7 +122,7 @@ impl std::error::Error for PackError {}
 /// Estimate tokens without a tokenizer. Deliberately conservative for code.
 pub fn estimate_tokens(text: &str) -> usize {
     let chars = text.chars().count();
-    (chars + 3) / 4 + 1
+    chars.div_ceil(4) + 1
 }
 
 pub fn build_context(index: &RepoIndex, query: &ContextQuery) -> Result<ContextPack, PackError> {
@@ -142,11 +142,7 @@ pub fn build_context(index: &RepoIndex, query: &ContextQuery) -> Result<ContextP
             warnings.push(format!("pin `{pin}` is outside the indexed root; ignored"));
             continue;
         };
-        if index
-            .file_entry(&normalized)
-            .map_err(|e| PackError(e))?
-            .is_none()
-        {
+        if index.file_entry(&normalized).map_err(PackError)?.is_none() {
             warnings.push(format!(
                 "pin `{pin}` is not indexed (ignored, binary or secret-shaped); not sent"
             ));

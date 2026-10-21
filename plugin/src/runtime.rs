@@ -20,9 +20,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
-use wasmtime::{
-    Caller, Config, Engine, Linker, Module, Store, StoreLimits, StoreLimitsBuilder,
-};
+use wasmtime::{Caller, Config, Engine, Linker, Module, Store, StoreLimits, StoreLimitsBuilder};
 
 pub const DEFAULT_FUEL: u64 = 20_000_000;
 pub const DEFAULT_MAX_MEMORY: usize = 64 * 1024 * 1024;
@@ -207,19 +205,18 @@ impl PluginRuntime {
                 if ptr < 0 || len < 0 {
                     return;
                 }
-                let Some(memory) = caller.get_export("memory").and_then(|e| e.into_memory())
-                else {
+                let Some(memory) = caller.get_export("memory").and_then(|e| e.into_memory()) else {
                     return;
                 };
                 let len = (len as usize).min(MAX_LOG_MESSAGE);
                 let mut buffer = vec![0u8; len];
-                if memory.read(&caller, ptr as usize, &mut buffer).is_ok() {
-                    if caller.data().logs.len() < MAX_LOG_ENTRIES {
-                        caller
-                            .data_mut()
-                            .logs
-                            .push(String::from_utf8_lossy(&buffer).to_string());
-                    }
+                if memory.read(&caller, ptr as usize, &mut buffer).is_ok()
+                    && caller.data().logs.len() < MAX_LOG_ENTRIES
+                {
+                    caller
+                        .data_mut()
+                        .logs
+                        .push(String::from_utf8_lossy(&buffer).to_string());
                 }
             },
         )?;
@@ -241,8 +238,7 @@ impl PluginRuntime {
                 if !caller.data().capabilities.contains("kv:read") {
                     return -2;
                 }
-                let Some(memory) = caller.get_export("memory").and_then(|e| e.into_memory())
-                else {
+                let Some(memory) = caller.get_export("memory").and_then(|e| e.into_memory()) else {
                     return -1;
                 };
                 let key_len = (key_len.max(0) as usize).min(MAX_KV_KEY);
@@ -281,8 +277,7 @@ impl PluginRuntime {
                 if !caller.data().capabilities.contains("kv:write") {
                     return -2;
                 }
-                let Some(memory) = caller.get_export("memory").and_then(|e| e.into_memory())
-                else {
+                let Some(memory) = caller.get_export("memory").and_then(|e| e.into_memory()) else {
                     return -1;
                 };
                 let key_len = (key_len.max(0) as usize).min(MAX_KV_KEY);
@@ -299,9 +294,7 @@ impl PluginRuntime {
                     return -1;
                 }
                 let key = String::from_utf8_lossy(&key).to_string();
-                if !caller.data().kv.contains_key(&key)
-                    && caller.data().kv.len() >= MAX_KV_KEYS
-                {
+                if !caller.data().kv.contains_key(&key) && caller.data().kv.len() >= MAX_KV_KEYS {
                     return -1;
                 }
                 caller
@@ -318,7 +311,13 @@ impl PluginRuntime {
     fn kv_path(&self, plugin: &str) -> PathBuf {
         let safe: String = plugin
             .chars()
-            .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
             .collect();
         self.state_dir.join(format!("{safe}.json"))
     }
@@ -349,11 +348,7 @@ impl PluginRuntime {
 }
 
 /// Convenience wrapper for the common case.
-pub fn run_file(
-    wasm: &Path,
-    input: &str,
-    limits: &RunLimits,
-) -> Result<PluginRun> {
+pub fn run_file(wasm: &Path, input: &str, limits: &RunLimits) -> Result<PluginRun> {
     let validated = crate::manager::validate_plugin(wasm)?;
     let runtime = PluginRuntime::new()?;
     runtime.run(&validated, input.as_bytes(), limits)
@@ -440,11 +435,7 @@ mod tests {
             "entrypoint": "run",
             "permissions": permissions,
         });
-        std::fs::write(
-            path.with_extension("wasm.json"),
-            manifest.to_string(),
-        )
-        .unwrap();
+        std::fs::write(path.with_extension("wasm.json"), manifest.to_string()).unwrap();
         path
     }
 
@@ -453,7 +444,9 @@ mod tests {
         let dir = temp("echo");
         let path = plugin(&dir, "echo", ECHO_WAT, &["log"]);
         let validated = validate_plugin(&path).unwrap();
-        let runtime = PluginRuntime::new().unwrap().with_state_dir(dir.join("state"));
+        let runtime = PluginRuntime::new()
+            .unwrap()
+            .with_state_dir(dir.join("state"));
         let run = runtime
             .run(&validated, b"hello wasm", &RunLimits::default())
             .unwrap();
@@ -468,7 +461,9 @@ mod tests {
         let dir = temp("kv");
         let path = plugin(&dir, "kv", KV_WAT, &[]);
         let validated = validate_plugin(&path).unwrap();
-        let runtime = PluginRuntime::new().unwrap().with_state_dir(dir.join("state"));
+        let runtime = PluginRuntime::new()
+            .unwrap()
+            .with_state_dir(dir.join("state"));
         // A denied host call must not silently grant access; the guest returns
         // an invalid length, which the host rejects rather than misreporting.
         let denied = runtime.run(&validated, b"", &RunLimits::default());
@@ -476,13 +471,9 @@ mod tests {
 
         let path = plugin(&dir, "kv", KV_WAT, &["kv:read", "kv:write"]);
         let validated = validate_plugin(&path).unwrap();
-        let run = runtime
-            .run(&validated, b"", &RunLimits::default())
-            .unwrap();
+        let run = runtime.run(&validated, b"", &RunLimits::default()).unwrap();
         assert_eq!(run.kv.get("k").map(String::as_str), Some("value"));
-        let again = runtime
-            .run(&validated, b"", &RunLimits::default())
-            .unwrap();
+        let again = runtime.run(&validated, b"", &RunLimits::default()).unwrap();
         assert_eq!(again.kv.get("k").map(String::as_str), Some("value"));
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -500,7 +491,9 @@ mod tests {
         let dir = temp("fuel");
         let path = plugin(&dir, "spin", wat, &[]);
         let validated = validate_plugin(&path).unwrap();
-        let runtime = PluginRuntime::new().unwrap().with_state_dir(dir.join("state"));
+        let runtime = PluginRuntime::new()
+            .unwrap()
+            .with_state_dir(dir.join("state"));
         let limits = RunLimits {
             fuel: 10_000,
             ..Default::default()
@@ -523,7 +516,9 @@ mod tests {
         let dir = temp("imports");
         let path = plugin(&dir, "net", wat, &["network"]);
         let validated = validate_plugin(&path).unwrap();
-        let runtime = PluginRuntime::new().unwrap().with_state_dir(dir.join("state"));
+        let runtime = PluginRuntime::new()
+            .unwrap()
+            .with_state_dir(dir.join("state"));
         assert!(runtime.run(&validated, b"", &RunLimits::default()).is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }

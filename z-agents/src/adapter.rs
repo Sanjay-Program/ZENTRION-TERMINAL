@@ -538,7 +538,7 @@ ui: {badge: CC, color: "#fff"}
 "##,
         )
         .unwrap();
-        let adapters = discover(&[dir.clone()]);
+        let adapters = discover(std::slice::from_ref(&dir));
         let adapter = adapters.iter().find(|a| a.id == "claude-code").unwrap();
         assert_eq!(adapter.name, "Claude Code Custom");
         assert!(adapter.permissions.allow_write);

@@ -835,10 +835,7 @@ mod tests {
     #[test]
     fn archive_magic_detection() {
         use z_package::extract::sniff_format;
-        assert_eq!(
-            sniff_format(&[0x1f, 0x8b, 0, 0]),
-            ArchiveFormat::TarGz
-        );
+        assert_eq!(sniff_format(&[0x1f, 0x8b, 0, 0]), ArchiveFormat::TarGz);
         assert_eq!(sniff_format(b"PK\x03\x04more"), ArchiveFormat::Zip);
         assert_eq!(
             sniff_format(&[0x28, 0xb5, 0x2f, 0xfd]),

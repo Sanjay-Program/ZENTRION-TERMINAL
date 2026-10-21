@@ -622,12 +622,12 @@ impl BlockStore {
                 "output_base64": base64::engine::general_purpose::STANDARD.encode(output),
             }));
         }
-        Ok(serde_json::to_string_pretty(&serde_json::json!({
+        serde_json::to_string_pretty(&serde_json::json!({
             "version": 1,
             "exported_at": Utc::now().to_rfc3339(),
             "blocks": entries,
         }))
-        .map_err(|e| StoreError::Invalid(e.to_string()))?)
+        .map_err(|e| StoreError::Invalid(e.to_string()))
     }
 
     /// Import a document produced by [`export_json`]. Returns block count.

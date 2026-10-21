@@ -113,19 +113,10 @@ impl std::fmt::Display for RouterError {
 
 impl std::error::Error for RouterError {}
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 struct Breaker {
     failures: u32,
     open_until: Option<Instant>,
-}
-
-impl Default for Breaker {
-    fn default() -> Self {
-        Self {
-            failures: 0,
-            open_until: None,
-        }
-    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -679,12 +670,13 @@ mod tests {
     }
 
     fn test_config() -> ModelsConfig {
-        let mut config = ModelsConfig::default();
-        config.default = "local/qwen2.5-coder:7b".into();
-        config.fallback = vec!["openai/gpt-4o-mini".into()];
-        config.allow_cloud = true;
-        config.budget_usd_per_day = 10.0;
-        config
+        ModelsConfig {
+            default: "local/qwen2.5-coder:7b".into(),
+            fallback: vec!["openai/gpt-4o-mini".into()],
+            allow_cloud: true,
+            budget_usd_per_day: 10.0,
+            ..Default::default()
+        }
     }
 
     fn test_router(

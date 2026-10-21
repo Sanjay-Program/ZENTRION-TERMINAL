@@ -339,10 +339,9 @@ impl SecurityStore {
             if decision != "break_glass" {
                 return Err("break-glass supplied but not needed for an in-scope target".into());
             }
-            if !glass.valid_for(
-                &crate::scope::Target::parse(input.target.as_deref().unwrap_or(""))
-                    .map_err(|e| e)?,
-            ) {
+            if !glass.valid_for(&crate::scope::Target::parse(
+                input.target.as_deref().unwrap_or(""),
+            )?) {
                 return Err("break-glass does not cover this target".into());
             }
         }
@@ -1107,7 +1106,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(evidence.decision, "break_glass");
-        assert_eq!(store.verify_evidence("eng_demo").valid, true);
+        assert!(store.verify_evidence("eng_demo").valid);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

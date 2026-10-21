@@ -974,7 +974,7 @@ mod tests {
     fn unterminated_marker_is_bounded_and_flushed() {
         let mut splitter = MarkerSplitter::new();
         let mut bytes = b"\x1b]133;".to_vec();
-        bytes.extend(std::iter::repeat(b'x').take(MAX_MARK_BYTES + 10));
+        bytes.extend(std::iter::repeat_n(b'x', MAX_MARK_BYTES + 10));
         let segments = splitter.push(&bytes);
         assert!(segments.iter().all(|segment| segment.mark.is_none()));
         assert!(segments
