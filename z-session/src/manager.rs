@@ -204,6 +204,7 @@ impl SessionManager {
             login: params.login,
             heuristic_blocks: false,
             command: params.command.clone(),
+            scrollback_dir: Some(self.options.data_dir.join("scrollback")),
         };
         let tx = self.block_tx.clone();
         let sink: Option<BlockSink> = tx.map(|tx| {

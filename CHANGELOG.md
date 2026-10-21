@@ -2,6 +2,14 @@
 
 ## Unreleased — blueprint implementation
 
+### Durable scrollback and session snapshots
+- Sessions now persist raw PTY output plus ANSI/plain screen snapshots under
+  `<data>/scrollback/<id>` (5 s cadence and on exit, 16 MiB rotation, 0600
+  files). `z session history` lists snapshots after the daemon stops and
+  `z session scrollback <id> [--tail BYTES]` prints the raw stream directly
+  from disk. 2 unit tests (rotation/traversal) and a CLI test that stops the
+  daemon and still reads the output.
+
 ### Hunk-level checkpoint accept
 - Added `CheckpointStore::restore_hunks` and `z checkpoint restore --hunk
   <path>:<index[,index]>`: selected hunks revert to the snapshot while other

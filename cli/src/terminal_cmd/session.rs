@@ -21,6 +21,7 @@ pub fn session(args: &[String], json_out: bool) -> ZenResult<()> {
             "--signal",
             "--data",
             "--profile",
+            "--tail",
         ],
     );
     match parsed.command("status") {
@@ -80,6 +81,73 @@ pub fn session(args: &[String], json_out: bool) -> ZenResult<()> {
                         session.shell,
                         session.cwd
                     );
+                }
+                Ok(())
+            }
+        }
+        "history" => {
+            let data = data_dir()?;
+            let sessions = z_session::persisted_sessions(&data)
+                .map_err(|e| map_err("cannot read persisted sessions", e))?;
+            if json_out {
+                let rows: Vec<_> = sessions
+                    .iter()
+                    .map(|session| {
+                        json!({
+                            "id": session.info.id,
+                            "title": session.title,
+                            "cwd": session.cwd,
+                            "status": session.info.status,
+                            "saved_at": session.saved_at,
+                            "screen_lines": session.screen.lines().count(),
+                            "has_keyframe": !session.keyframe.is_empty(),
+                        })
+                    })
+                    .collect();
+                print_json(&json!({"sessions": rows, "root": z_session::scrollback_root(&data)}))
+            } else if sessions.is_empty() {
+                println!("No persisted sessions.");
+                Ok(())
+            } else {
+                println!(
+                    "{:<24} {:<12} {:<20} {:<20} TITLE",
+                    "ID", "STATUS", "SAVED", "CWD"
+                );
+                for session in sessions {
+                    println!(
+                        "{:<24} {:<12} {:<20} {:<20} {}",
+                        session.info.id,
+                        session.info.status,
+                        session.saved_at.format("%Y-%m-%d %H:%M:%S"),
+                        session.cwd.as_deref().unwrap_or(&session.info.cwd),
+                        session.title.as_deref().unwrap_or(&session.info.title)
+                    );
+                }
+                Ok(())
+            }
+        }
+        "scrollback" => {
+            let id = parsed
+                .rest()
+                .first()
+                .ok_or_else(|| fail("usage: z session scrollback <session-id> [--tail BYTES]"))?;
+            let data = data_dir()?;
+            let limit = parsed
+                .value("--tail")
+                .and_then(|value| value.parse::<usize>().ok())
+                .unwrap_or(256 * 1024);
+            let bytes = z_session::read_persisted_scrollback(&data, id, limit)
+                .map_err(|e| map_err("cannot read persisted scrollback", e))?;
+            if json_out {
+                print_json(&json!({
+                    "id": id,
+                    "bytes": bytes.len(),
+                    "path": z_session::scrollback_path(&data, id),
+                }))
+            } else {
+                std::io::stdout().write_all(&bytes)?;
+                if !bytes.ends_with(b"\n") {
+                    println!();
                 }
                 Ok(())
             }

@@ -29,8 +29,10 @@ pub use integration::{
 pub use manager::{resolve_shell, CreateParams, ManagerOptions, SessionManager};
 pub use protocol::{OutputFrame, RpcRequest, RpcResponse, MAX_FRAME};
 pub use session::{
-    BlockSink, Mark, MarkerSplitter, OutputChunk, RingBuffer, Segment, SessionError, SessionEvent,
-    SessionHandle, SessionInfo, SessionOptions, SessionSnapshot,
+    persisted_sessions, read_persisted_scrollback, scrollback_path, scrollback_root, BlockSink,
+    Mark, MarkerSplitter, OutputChunk, PersistedSession, RingBuffer, Segment, SessionError,
+    SessionEvent, SessionHandle, SessionInfo, SessionOptions, SessionSnapshot,
+    SCROLLBACK_MAX_BYTES,
 };
 pub use workspace::{
     plan_restore, Direction, Layout, Pane, PaneAction, PanePlan, RestorePlan, Tab, Workspace,

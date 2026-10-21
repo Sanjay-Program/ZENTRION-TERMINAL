@@ -9,8 +9,9 @@ use crate::integration;
 use chrono::{DateTime, Utc};
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use std::collections::VecDeque;
+use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use thiserror::Error;
@@ -112,6 +113,9 @@ pub struct SessionOptions {
     pub heuristic_blocks: bool,
     /// Run this argv directly instead of a shell (remote domains, programs).
     pub command: Option<Vec<String>>,
+    /// Directory for durable scrollback and screen snapshots. `None` disables
+    /// persistence (used by in-process tests and one-shot sessions).
+    pub scrollback_dir: Option<PathBuf>,
 }
 
 impl SessionOptions {
@@ -130,6 +134,7 @@ impl SessionOptions {
             login: false,
             heuristic_blocks: false,
             command: None,
+            scrollback_dir: None,
         }
     }
 }
@@ -342,6 +347,8 @@ pub struct SessionHandle {
     block_sink: Option<BlockSink>,
     heuristic: bool,
     heuristic_line: Mutex<Vec<u8>>,
+    scrollback: Mutex<ScrollbackWriter>,
+    last_persist: Mutex<std::time::Instant>,
 }
 
 impl std::fmt::Debug for SessionHandle {
@@ -475,6 +482,11 @@ impl SessionHandle {
             block_sink,
             heuristic: options.heuristic_blocks && !launch.integration,
             heuristic_line: Mutex::new(Vec::new()),
+            scrollback: Mutex::new(ScrollbackWriter::open(
+                options.scrollback_dir.as_deref(),
+                &id,
+            )),
+            last_persist: Mutex::new(std::time::Instant::now()),
         });
         let reader_session = Arc::clone(&session);
         std::thread::Builder::new()
@@ -684,6 +696,7 @@ impl SessionHandle {
         }
         self.alive.store(false, Ordering::SeqCst);
         self.info.lock().expect("info lock").status = "closed".into();
+        self.persist_snapshot();
         Ok(())
     }
 
@@ -728,6 +741,7 @@ impl SessionHandle {
         for event in pending {
             let _ = self.events.send(event);
         }
+        self.persist_snapshot();
         let _ = self.events.send(SessionEvent::Exited { code });
     }
 
@@ -787,6 +801,11 @@ impl SessionHandle {
                 }
             }
         }
+        self.scrollback
+            .lock()
+            .expect("scrollback lock")
+            .append(bytes);
+        self.persist_snapshot_if_due();
         if let Some(sink) = &self.block_sink {
             for (block, output) in finished {
                 sink(block.clone(), output);
@@ -801,6 +820,43 @@ impl SessionHandle {
         for event in derived {
             let _ = self.events.send(event);
         }
+    }
+
+    fn persist_snapshot_if_due(&self) {
+        let due = {
+            let mut last = self.last_persist.lock().expect("persist clock");
+            if last.elapsed() < std::time::Duration::from_secs(5) {
+                false
+            } else {
+                *last = std::time::Instant::now();
+                true
+            }
+        };
+        if due {
+            self.persist_snapshot();
+        }
+    }
+
+    /// Best-effort durable snapshot: metadata, ANSI keyframe and plain screen.
+    /// Errors are ignored because a full disk or revoked permissions must not
+    /// kill a live terminal; the raw stream is still in the ring buffer.
+    fn persist_snapshot(&self) {
+        let info = self.info.lock().expect("info lock").clone();
+        let snapshot = {
+            let core = self.core.lock().expect("session core lock");
+            (
+                core.terminal.keyframe(),
+                core.terminal.contents(),
+                core.title.clone(),
+                core.terminal.cwd().map(str::to_string),
+            )
+        };
+        let (keyframe, screen, title, cwd) = snapshot;
+        let _ = self
+            .scrollback
+            .lock()
+            .expect("scrollback lock")
+            .persist(&info, title, cwd, &screen, &keyframe);
     }
 
     fn apply_mark(
@@ -894,6 +950,235 @@ fn exit_code(status: portable_pty::ExitStatus) -> i32 {
     status.exit_code() as i32
 }
 
+/// Upper bound for a session's raw scrollback on disk. Older bytes rotate to
+/// `output.1.raw`; the two files together are still bounded (2x).
+pub const SCROLLBACK_MAX_BYTES: u64 = 16 * 1024 * 1024;
+const SCROLLBACK_VERSION: u32 = 1;
+
+/// A session snapshot recovered from disk after a daemon restart.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PersistedSession {
+    pub version: u32,
+    pub saved_at: DateTime<Utc>,
+    pub info: SessionInfo,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub cwd: Option<String>,
+    #[serde(default)]
+    pub screen: String,
+    #[serde(default)]
+    pub keyframe: String,
+}
+
+pub fn scrollback_root(data_dir: &Path) -> PathBuf {
+    data_dir.join("scrollback")
+}
+
+pub fn scrollback_path(data_dir: &Path, id: &str) -> Option<PathBuf> {
+    valid_session_id(id).then(|| scrollback_root(data_dir).join(id).join("output.raw"))
+}
+
+fn valid_session_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() < 80
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+}
+
+/// Read persisted raw scrollback for a session, returning at most `max_bytes`
+/// from the end. Works whether or not the daemon is running.
+pub fn read_persisted_scrollback(data_dir: &Path, id: &str, max_bytes: usize) -> Result<Vec<u8>> {
+    if !valid_session_id(id) {
+        return Err(SessionError::NotFound(format!("invalid session id `{id}`")));
+    }
+    let dir = scrollback_root(data_dir).join(id);
+    if !dir.is_dir() {
+        return Err(SessionError::NotFound(format!(
+            "no persisted scrollback for {id}"
+        )));
+    }
+    let mut data = Vec::new();
+    for name in ["output.1.raw", "output.raw"] {
+        if let Ok(mut file) = File::open(dir.join(name)) {
+            let mut part = Vec::new();
+            file.read_to_end(&mut part)?;
+            data.extend_from_slice(&part);
+            if data.len() > max_bytes.saturating_mul(2) {
+                data.drain(..data.len() - max_bytes);
+            }
+        }
+    }
+    if data.len() > max_bytes {
+        data.drain(..data.len() - max_bytes);
+    }
+    Ok(data)
+}
+
+/// List sessions that have a persisted snapshot, newest first.
+pub fn persisted_sessions(data_dir: &Path) -> Result<Vec<PersistedSession>> {
+    let root = scrollback_root(data_dir);
+    if !root.is_dir() {
+        return Ok(Vec::new());
+    }
+    let mut out = Vec::new();
+    for entry in std::fs::read_dir(root)?.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(path.join("meta.json")) else {
+            continue;
+        };
+        if let Ok(snapshot) = serde_json::from_str::<PersistedSession>(&text) {
+            out.push(snapshot);
+        }
+    }
+    out.sort_by(|a, b| b.saved_at.cmp(&a.saved_at));
+    Ok(out)
+}
+
+struct ScrollbackWriter {
+    dir: Option<PathBuf>,
+    file: Option<File>,
+    written: u64,
+    max_bytes: u64,
+}
+
+impl ScrollbackWriter {
+    fn open(base: Option<&Path>, id: &str) -> Self {
+        Self::open_with_limit(base, id, SCROLLBACK_MAX_BYTES)
+    }
+
+    fn open_with_limit(base: Option<&Path>, id: &str, max_bytes: u64) -> Self {
+        let Some(base) = base else {
+            return Self {
+                dir: None,
+                file: None,
+                written: 0,
+                max_bytes,
+            };
+        };
+        if !valid_session_id(id) {
+            return Self {
+                dir: None,
+                file: None,
+                written: 0,
+                max_bytes,
+            };
+        }
+        let dir = base.join(id);
+        if std::fs::create_dir_all(&dir).is_err() {
+            return Self {
+                dir: None,
+                file: None,
+                written: 0,
+                max_bytes,
+            };
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
+        }
+        let path = dir.join("output.raw");
+        let existing = std::fs::metadata(&path).map(|meta| meta.len()).unwrap_or(0);
+        if existing >= max_bytes {
+            rotate_files(&dir);
+        }
+        let file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .ok();
+        let written = std::fs::metadata(&path).map(|meta| meta.len()).unwrap_or(0);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+        }
+        Self {
+            dir: Some(dir),
+            file,
+            written,
+            max_bytes,
+        }
+    }
+
+    fn append(&mut self, bytes: &[u8]) {
+        let Some(file) = self.file.as_mut() else {
+            return;
+        };
+        if file.write_all(bytes).is_err() {
+            return;
+        }
+        self.written = self.written.saturating_add(bytes.len() as u64);
+        if self.written >= self.max_bytes {
+            self.rotate();
+        }
+    }
+
+    fn rotate(&mut self) {
+        let Some(dir) = self.dir.clone() else {
+            return;
+        };
+        self.file.take();
+        rotate_files(&dir);
+        let path = dir.join("output.raw");
+        self.file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .ok();
+        self.written = 0;
+    }
+
+    fn persist(
+        &self,
+        info: &SessionInfo,
+        title: Option<String>,
+        cwd: Option<String>,
+        screen: &str,
+        keyframe: &str,
+    ) -> std::io::Result<()> {
+        let Some(dir) = &self.dir else {
+            return Ok(());
+        };
+        let snapshot = PersistedSession {
+            version: SCROLLBACK_VERSION,
+            saved_at: Utc::now(),
+            info: info.clone(),
+            title,
+            cwd,
+            screen: screen.to_string(),
+            keyframe: keyframe.to_string(),
+        };
+        let text = serde_json::to_vec_pretty(&snapshot).map_err(std::io::Error::other)?;
+        let tmp = dir.join("meta.json.tmp");
+        std::fs::write(&tmp, &text)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600));
+        }
+        std::fs::rename(&tmp, dir.join("meta.json"))?;
+        let screen_tmp = dir.join("screen.txt.tmp");
+        std::fs::write(&screen_tmp, screen)?;
+        std::fs::rename(&screen_tmp, dir.join("screen.txt"))?;
+        Ok(())
+    }
+}
+
+fn rotate_files(dir: &Path) {
+    let current = dir.join("output.raw");
+    let previous = dir.join("output.1.raw");
+    if current.exists() {
+        let _ = std::fs::remove_file(&previous);
+        let _ = std::fs::rename(&current, &previous);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -980,5 +1265,83 @@ mod tests {
         assert!(segments
             .iter()
             .any(|segment| segment.bytes.len() > MAX_MARK_BYTES));
+    }
+
+    fn scrollback_temp(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "zentrion-scrollback-{}-{}-{}",
+            name,
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn sample_info(id: &str) -> SessionInfo {
+        SessionInfo {
+            id: id.into(),
+            title: "demo".into(),
+            shell: "/bin/bash".into(),
+            cwd: "/tmp".into(),
+            rows: 40,
+            cols: 120,
+            created_at: Utc::now(),
+            status: "closed".into(),
+            pid: None,
+            integration: true,
+            shell_kind: "bash".into(),
+        }
+    }
+
+    #[test]
+    fn persisted_scrollback_rotates_lists_and_reloads() {
+        let root = scrollback_temp("rotate");
+        let base = scrollback_root(&root);
+        let mut writer = ScrollbackWriter::open_with_limit(Some(&base), "s_test", 1000);
+        writer.append(&vec![b'A'; 600]);
+        writer.append(&vec![b'B'; 600]);
+        writer.append(b"C");
+        writer
+            .persist(
+                &sample_info("s_test"),
+                Some("demo title".into()),
+                Some("/tmp".into()),
+                "screen contents",
+                "\x1b[Hkeyframe",
+            )
+            .unwrap();
+        drop(writer);
+
+        let data = read_persisted_scrollback(&root, "s_test", usize::MAX).unwrap();
+        assert!(data.starts_with(&[b'A'; 600]), "oldest bytes first");
+        assert!(data.windows(600).any(|window| window == [b'B'; 600]));
+        assert!(data.ends_with(b"C"), "newest bytes last");
+        assert!(data.len() >= 1201);
+
+        let sessions = persisted_sessions(&root).unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].info.id, "s_test");
+        assert_eq!(sessions[0].title.as_deref(), Some("demo title"));
+        assert_eq!(sessions[0].screen, "screen contents");
+        assert!(sessions[0].keyframe.contains("keyframe"));
+        assert_eq!(
+            std::fs::read_to_string(base.join("s_test").join("screen.txt")).unwrap(),
+            "screen contents"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn persisted_scrollback_rejects_traversal_and_missing_ids() {
+        let root = scrollback_temp("traversal");
+        assert!(read_persisted_scrollback(&root, "../escape", 10).is_err());
+        assert!(read_persisted_scrollback(&root, "s_missing", 10).is_err());
+        // Disabled persistence must not create directories.
+        let mut writer = ScrollbackWriter::open(None, "s_none");
+        writer.append(b"ignored");
+        assert!(persisted_sessions(&root).unwrap().is_empty());
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

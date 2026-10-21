@@ -19,7 +19,7 @@ Legend: **implemented** · **partial** (working with a stated limit) ·
 |---|---|---|---|
 | VT parsing, OSC policy, screen, search, selections, link detection | implemented | `z-vt` | Golden unit tests for OSC 133/7/9/9;4/52/1337, search, selections, link schemes. No execution from output. |
 | Command blocks, SQLite/WAL store, FTS5, gzip output, redaction, sharing | implemented | `z-blocks` | Recorder state-machine tests, store round-trip, tamper detection, secret redaction tests. |
-| PTY sessions, Unix socket daemon, JSON-RPC + binary frames, attach/detach, replay, block sink | implemented (Unix) | `z-session` | End-to-end daemon test; CLI integration test creates a bash session and asserts blocks/replay. Windows named pipe is not implemented. |
+| PTY sessions, Unix socket daemon, JSON-RPC + binary frames, attach/detach, replay, block sink | implemented (Unix) | `z-session` | End-to-end daemon test; CLI integration test creates a bash session and asserts blocks/replay. Raw output + ANSI/plain screen snapshots are persisted under `<data>/scrollback/<id>` (5s cadence + on exit, 16 MiB rotation) and survive daemon shutdown (`z session history`, `z session scrollback <id>`). Windows named pipe is not implemented. |
 | Shell integration scripts (bash, zsh, fish, pwsh, nushell) | partial | `z-session/src/integration.rs` | Bash is exercised end-to-end. The other four scripts are generated and validated by manifest tests but the shells were unavailable in this environment. Bash compound/pipeline command text is best-effort because bash's DEBUG trap reports simple commands. |
 | Workspaces, YAML layouts, restore policies | implemented | `z-session/src/workspace.rs` | Blueprint example parses; unit tests for validation and restore plans; `z workspace restore` spawns shells and only auto-runs commands with `auto_run`/`--approve`. Agent panes are reported, not auto-started. |
 | Layered config, keybindings, profiles, importers | implemented | `z-config` | 21 unit tests: precedence, strict unknown-key errors with line numbers, atomic writes, backup, Windows Terminal/Ghostty/iTerm2 import. The TUI now dispatches bound F-key/Alt actions through this keymap; actions without a TUI implementation (copy mode, agent dashboard, workspace actions) still fall through. |
@@ -110,8 +110,10 @@ All destructive or agentic paths are deny-by-default and audited:
    response; there is no token stream or cancellation. Response caching is
    process-local, embeddings are not implemented, and the built-in price table
    is static and should be verified against provider pricing.
-6. **No scrollback persistence for raw session output.** Blocks are persisted
-   to SQLite; a daemon restart loses the live screen and raw ring buffer.
+6. **Persisted scrollback is bounded.** Raw output rotates at 16 MiB (at most
+   two files) and snapshots are written every five seconds and on exit; a hard
+   crash can lose the last few seconds, and the live screen is not
+   reconstructed automatically on daemon start (use `z session history`).
 7. **Hunk restore is line-based.** Selected hunks can be reverted (`--hunk`),
    but binary files and diffs truncated at the line cap still need a full-file
    restore.
@@ -151,10 +153,7 @@ real JSON-RPC handshake and `z agent run` with a local adapter.
 ## 5. Recommended next work (highest leverage first)
 
 1. TUI keybinding dispatch through `z-config::Keymap` for every action.
-2. Agent supervisor inside the session daemon + TUI approval dashboard.
-3. Copy mode and persisted FTS block search in the TUI.
-4. Daemon-owned scrollback persistence and Windows transport.
-5. Hunk-level checkpoint accept/reject.
-6. Benchmark harness and CI regression gate.
-7. An xterm.js/WebSocket web observer (the current observer is plain text over
-   HTTP) and a GPU renderer; SSH domains and the enterprise control plane.
+2. Live agent dashboard inside the TUI.
+3. Model streaming/cancellation and an xterm.js/WebSocket web observer.
+4. GPU renderer, Landlock/seccomp confinement, Windows named-pipe transport,
+   enterprise control plane and i18n/RTL.

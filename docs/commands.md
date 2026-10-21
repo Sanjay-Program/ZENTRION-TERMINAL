@@ -67,6 +67,12 @@ ZENTRION TERMINAL interprets your intent and dynamically routes the capability.
 *   `z update` — Updates all outdated tools.
 *   `z remove <tool>` — Uninstalls a specific tool.
 
+## Sessions
+
+*   `z session list|create|attach|replay|blocks|input|resize|signal|close|status|stop|daemon` — Live session control.
+*   `z session history` — Lists sessions with a persisted screen/scrollback snapshot, including after the daemon stops.
+*   `z session scrollback <id> [--tail BYTES]` — Prints persisted raw output (default last 256 KiB) from disk, no daemon required.
+
 ## Network & native engines
 
 *   `z engine list|info <name>|doctor` — Lists native engines and whether they are ready.

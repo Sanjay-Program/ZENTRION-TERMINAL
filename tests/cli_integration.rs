@@ -1005,6 +1005,63 @@ fn session_daemon_records_blocks_and_replays() {
 }
 
 #[test]
+fn persisted_scrollback_survives_daemon_shutdown() {
+    if !cfg!(unix) {
+        return;
+    }
+    let env = Env::new("scrollback-persist");
+    let root = env.project();
+    let socket = env.dir.join("session.sock");
+    let mut cmd = env.cmd_in(&root);
+    cmd.env("ZENTRION_SESSION_SOCKET", &socket);
+    let out = cmd
+        .args([
+            "session",
+            "create",
+            "--shell",
+            "/bin/bash",
+            "--cwd",
+            root.to_str().unwrap(),
+        ])
+        .output()
+        .expect("create session");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let id = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    assert!(id.starts_with("s_"));
+
+    let mut cmd = env.cmd_in(&root);
+    cmd.env("ZENTRION_SESSION_SOCKET", &socket);
+    cmd.args(["session", "input", &id, "echo persisted-marker-42"]);
+    assert!(cmd.status().unwrap().success());
+    std::thread::sleep(std::time::Duration::from_millis(800));
+
+    let mut cmd = env.cmd_in(&root);
+    cmd.env("ZENTRION_SESSION_SOCKET", &socket);
+    cmd.args(["session", "stop"]);
+    let _ = cmd.status();
+
+    // The daemon is gone; both commands read the durable snapshot directly.
+    let (history, err, code) = run(&env, &root, &["session", "history"]);
+    assert_eq!(code, 0, "{err}");
+    assert!(history.contains(&id), "history: {history}");
+
+    let (scrollback, err, code) = run(
+        &env,
+        &root,
+        &["session", "scrollback", &id, "--tail", "131072"],
+    );
+    assert_eq!(code, 0, "{err}");
+    assert!(
+        scrollback.contains("persisted-marker-42"),
+        "scrollback did not contain the command output: {scrollback}"
+    );
+}
+
+#[test]
 fn agent_runs_are_owned_by_the_session_daemon_and_survive_cli_exit() {
     if !cfg!(unix) {
         return;

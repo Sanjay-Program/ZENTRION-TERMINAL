@@ -130,8 +130,10 @@ PTY, tabs, splits, and a local control plane.
   dashboard with telemetry/cost. Agent state derived from screen patterns is
   labelled approximate.
 - **Sessions are Unix-only.** The daemon/client use a Unix socket; the Windows
-  named-pipe transport is not implemented. Raw scrollback is not persisted
-  across a daemon restart (blocks are).
+  named-pipe transport is not implemented. Raw scrollback and screen snapshots
+  are persisted under the data directory and remain readable after a daemon
+  restart with `z session history` / `z session scrollback`; a hard crash can
+  lose the last few seconds.
 - **No GPU renderer, durable remote daemon or team control
   plane yet.** The web observer is a plain-text loopback viewer, not a full
   browser terminal.

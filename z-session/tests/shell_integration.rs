@@ -22,6 +22,7 @@ fn bash_shell_integration_records_a_command_block() {
         login: false,
         heuristic_blocks: false,
         command: None,
+        scrollback_dir: None,
     };
     let session = SessionHandle::spawn(opts, None).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(800));
