@@ -135,8 +135,9 @@ PTY, tabs, splits, and a local control plane.
 - **No GPU renderer, durable remote daemon or team control
   plane yet.** The web observer is a plain-text loopback viewer, not a full
   browser terminal.
-- **Checkpoint accept is file-level.** Hunks are displayed, but there is no
-  "accept this hunk only" operation.
+- **Checkpoint hunk accept is line-hunk based.** `z checkpoint restore --hunk
+  <path>:<index>` reverts selected hunks and verifies a full selection against
+  the blob; binary/truncated diffs still require a full-file restore.
 - **Model streaming is not implemented.** Model completions wait for the full
   response; there is no token stream or cancellation, and response caching is
   process-local. Embeddings are not implemented.

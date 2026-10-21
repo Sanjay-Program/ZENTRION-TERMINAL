@@ -395,7 +395,7 @@ pub fn context(args: &[String], json_out: bool) -> ZenResult<()> {
 }
 
 pub fn checkpoint(args: &[String], json_out: bool) -> ZenResult<()> {
-    let parsed = Parsed::parse(args, &["--file", "--days", "--output"]);
+    let parsed = Parsed::parse(args, &["--file", "--hunk", "--days", "--output"]);
     let store = z_checkpoint::CheckpointStore::default_store()
         .ok_or_else(|| fail("cannot determine checkpoint directory"))?;
     match parsed.command("list") {
@@ -559,6 +559,56 @@ pub fn checkpoint(args: &[String], json_out: bool) -> ZenResult<()> {
                         eprintln!("saved pre-restore backup checkpoint {}", backup.id);
                     }
                 }
+            }
+            let hunk_specs = parsed.values_of("--hunk");
+            if !hunk_specs.is_empty() {
+                if !parsed.values_of("--file").is_empty() {
+                    return Err(fail("--file and --hunk cannot be combined"));
+                }
+                let mut selections = Vec::new();
+                let mut seen_paths = std::collections::BTreeSet::new();
+                for spec in hunk_specs {
+                    let (file, indices) = spec.rsplit_once(':').ok_or_else(|| {
+                        fail(format!(
+                            "invalid --hunk '{spec}'; expected <path>:<index[,index]>"
+                        ))
+                    })?;
+                    if !seen_paths.insert(file.to_string()) {
+                        return Err(fail(format!(
+                            "--hunk was given twice for {file}; combine the indices"
+                        )));
+                    }
+                    let mut hunks = Vec::new();
+                    for index in indices.split(',') {
+                        hunks.push(index.trim().parse::<usize>().map_err(|_| {
+                            fail(format!("invalid hunk index '{index}' in '{spec}'"))
+                        })?);
+                    }
+                    selections.push(z_checkpoint::HunkSelection {
+                        path: file.to_string(),
+                        hunks,
+                    });
+                }
+                let report = store
+                    .restore_hunks(&manifest.id, &path, &selections)
+                    .map_err(|e| map_err("hunk restore failed", e))?;
+                write_audit(
+                    "user",
+                    "user",
+                    "checkpoint.restore_hunks",
+                    &manifest.id,
+                    "allow",
+                    "ok",
+                    "high",
+                )?;
+                if json_out {
+                    return print_json(&serde_json::to_value(&report).unwrap_or(json!({})));
+                }
+                println!(
+                    "restored {} hunk(s) across {} file(s), deleted {}, {} bytes",
+                    report.hunks, report.files, report.deleted, report.bytes
+                );
+                return Ok(());
             }
             let files: Vec<String> = parsed.values_of("--file").to_vec();
             let report = if !files.is_empty() {

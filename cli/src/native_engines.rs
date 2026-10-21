@@ -17,6 +17,10 @@ pub fn available_engines() -> &'static [(&'static str, &'static str)] {
         ("platform.info", "Report platform and native capabilities"),
         ("process.info", "Inspect a process by pid"),
         ("sysinfo", "Report CPU, memory and host information"),
+        (
+            "tls.inspect",
+            "Inspect a TLS endpoint: certificate, SANs, expiry, cipher and trust",
+        ),
     ]
 }
 
@@ -26,6 +30,7 @@ pub fn run_engine(engine: &str, args: Vec<String>, json_out: bool) -> ZenResult<
         "platform.info" => crate::tools_cmd::platform_report(json_out),
         "process.info" => process_info(args, json_out),
         "sysinfo" => sysinfo(json_out),
+        "tls.inspect" => tls_inspect(args, json_out),
         other => Err(
             ZenError::new(Area::Reg, 300, format!("unknown native engine '{other}'"))
                 .with_remediation(format!(
@@ -137,6 +142,124 @@ fn dns_resolve(args: Vec<String>, json_out: bool) -> ZenResult<()> {
             303,
             format!("resolution failed: {msg}"),
         )),
+    }
+}
+
+fn tls_inspect(args: Vec<String>, json_out: bool) -> ZenResult<()> {
+    let mut target: Option<String> = None;
+    let mut port: u16 = 443;
+    let mut index = 0usize;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--port" | "-p" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| ZenError::new(Area::Cfg, 320, "--port requires a value"))?;
+                port = value.parse().map_err(|_| {
+                    ZenError::new(Area::Cfg, 321, format!("invalid port '{value}'"))
+                })?;
+                index += 2;
+            }
+            "--json" => index += 1,
+            other if other.starts_with('-') => {
+                return Err(
+                    ZenError::new(Area::Cfg, 322, format!("unknown option '{other}'"))
+                        .with_remediation("Usage: tlsx [--port N] <host[:port]>"),
+                );
+            }
+            other => {
+                if target.is_some() {
+                    return Err(ZenError::new(
+                        Area::Cfg,
+                        323,
+                        "only one TLS target may be given",
+                    ));
+                }
+                target = Some(other.to_string());
+                index += 1;
+            }
+        }
+    }
+    let target = target
+        .ok_or_else(|| ZenError::new(Area::Cfg, 324, "usage: tlsx [--port N] <host[:port]>"))?;
+    let (host, port) = split_tls_target(&target, port);
+    match z_native::tls::inspect(&host, port) {
+        z_native::tls::TlsOutcome::Info(info) => {
+            if json_out {
+                println!("{}", serde_json::to_string_pretty(&*info)?);
+            } else {
+                println!("host:       {}:{}", info.host, info.port);
+                println!(
+                    "version:    {}",
+                    info.tls_version.as_deref().unwrap_or("unknown")
+                );
+                println!(
+                    "cipher:     {}",
+                    info.cipher.as_deref().unwrap_or("unknown")
+                );
+                println!(
+                    "trusted:    {}",
+                    match info.certificate_trusted {
+                        Some(true) => "yes",
+                        Some(false) => "NO (untrusted chain)",
+                        None => "unknown",
+                    }
+                );
+                println!(
+                    "hostname:   {}",
+                    match info.hostname_matches {
+                        Some(true) => "matches certificate",
+                        Some(false) => "DOES NOT MATCH certificate",
+                        None => "unknown",
+                    }
+                );
+                println!(
+                    "subject:    {}",
+                    info.peer_certificate_subject.as_deref().unwrap_or("?")
+                );
+                println!(
+                    "issuer:     {}",
+                    info.peer_certificate_issuer.as_deref().unwrap_or("?")
+                );
+                println!(
+                    "expires:    {}",
+                    info.certificate_expires.as_deref().unwrap_or("?")
+                );
+                println!("SANs:       {}", info.subject_alt_names.join(", "));
+            }
+            Ok(())
+        }
+        z_native::tls::TlsOutcome::Unsupported(message) => {
+            Err(ZenError::new(Area::Net, 325, message))
+        }
+        z_native::tls::TlsOutcome::Failed(message) => Err(ZenError::new(
+            Area::Net,
+            326,
+            format!("TLS inspection failed: {message}"),
+        )),
+    }
+}
+
+fn split_tls_target(target: &str, default_port: u16) -> (String, u16) {
+    let rest = target
+        .strip_prefix("https://")
+        .or_else(|| target.strip_prefix("tls://"))
+        .unwrap_or(target);
+    let authority = rest.split('/').next().unwrap_or(rest);
+    if let Some(stripped) = authority.strip_prefix('[') {
+        if let Some((host, tail)) = stripped.split_once(']') {
+            let port = tail
+                .strip_prefix(':')
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(default_port);
+            return (host.to_string(), port);
+        }
+    }
+    match authority.rsplit_once(':') {
+        Some((host, value)) if !value.is_empty() && value.chars().all(|c| c.is_ascii_digit()) => {
+            (host.to_string(), value.parse().unwrap_or(default_port))
+        }
+        _ => (authority.to_string(), default_port),
     }
 }
 

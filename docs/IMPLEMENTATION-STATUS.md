@@ -24,7 +24,7 @@ Legend: **implemented** · **partial** (working with a stated limit) ·
 | Workspaces, YAML layouts, restore policies | implemented | `z-session/src/workspace.rs` | Blueprint example parses; unit tests for validation and restore plans; `z workspace restore` spawns shells and only auto-runs commands with `auto_run`/`--approve`. Agent panes are reported, not auto-started. |
 | Layered config, keybindings, profiles, importers | implemented | `z-config` | 21 unit tests: precedence, strict unknown-key errors with line numbers, atomic writes, backup, Windows Terminal/Ghostty/iTerm2 import. The TUI now dispatches bound F-key/Alt actions through this keymap; actions without a TUI implementation (copy mode, agent dashboard, workspace actions) still fall through. |
 | Repository index, symbols, deterministic context packs | implemented | `z-context` | SQLite FTS5, git-aware walking, secret/binary exclusions, incremental reindex, budgeted packs, redaction. Symbols are lexer-level, not tree-sitter; embeddings are not implemented. |
-| Content-addressed checkpoints, diff, rollback, GC | implemented | `z-checkpoint` | Blob dedupe, signed manifests (Ed25519), diff hunks, byte-verified full/file restore, deletion of added files, workspace lock, GC. Hunk-level *accept* is not implemented (view hunks, accept/restore per file). |
+| Content-addressed checkpoints, diff, rollback, GC | implemented | `z-checkpoint` | Blob dedupe, signed manifests (Ed25519), diff hunks, byte-verified full/file restore, hunk-level restore (`restore_hunks` / `z checkpoint restore --hunk`), deletion of added files, workspace lock, GC. Hunk restore validates every selection before writing and verifies an all-hunks restore against the blob; binary/truncated diffs require a full restore. |
 | Workflows (run/approve/parallel/if/http/artifact), vars, secrets, audit | implemented | `z-workflow` | 20 tests including timeout kill, denied approval, parallel, artifact traversal, audit records. No scheduler/daemon yet. |
 | Notebooks (shell/markdown/AI cells, params, runs, exports) | implemented | `z-notebook` | 7 unit tests plus a CLI integration test: ordered cells, `${param}`/previous-output interpolation, timeouts, output caps, secret redaction, audit records, JSON run history and markdown/HTML export. AI cells use the model router; `--no-ai` fails them explicitly. No scheduling or collaborative editing. |
 | Security engagements, scope guard, evidence chain, findings, signed reports | implemented | `z-security` | 21 tests: wildcard/CIDR/ports/out-of-scope, break-glass, pre-execution blocking, Ed25519 evidence chain, tamper detection, signed markdown/HTML. It does not bundle scanners; it governs commands you run. |
@@ -44,6 +44,7 @@ Legend: **implemented** · **partial** (working with a stated limit) ·
 | Landlock/seccomp/cgroup/network namespace | not started | — | Existing hardening is privilege/rlimit based. |
 | Audit ledger Ed25519 signing | implemented (opt-in) | `z-audit`, `z audit key` | Hash chain unchanged (signature excluded). `z audit key` creates a local Ed25519 key; subsequent events carry `signature`/`signer`. `z audit verify` checks both the chain and signatures, reports missing keys and fails on a bad signature. Unsigned legacy logs still verify as unsigned. |
 | Native DNS records | implemented | `z-native::dns` | Built-in wire-protocol client for A/AAAA/CNAME/MX/TXT/NS/SOA/PTR: UDP with TCP fallback on truncation, resolv.conf nameservers, compression-pointer loop/bounds checks, 10 offline packet/parser tests plus a local UDP end-to-end test. |
+| TLS inspection | implemented | `z-native::tls`, `z engine run tls inspect` | rustls (ring) with OS roots + webpki fallback. Performs a verifying handshake, then a read-only unverified handshake only to report a rejected certificate with `certificate_trusted: false`. Reports version, cipher, subject, issuer, SANs, expiry and RFC 6125 hostname match. 7 tests including a local TLS server; live check against `example.com` negotiated TLS 1.3 and a trusted chain. |
 | Package hashing and extraction | implemented | `z-package` | Streaming SHA-256/SHA-512 (no size cap) and a two-phase, bounds-checked extractor for tar, tar.gz, tar.zst and zip (stored + deflate, CRC-32 verified). Zip refuses traversal, symlinks, encryption, multi-disk and ZIP64 instead of guessing. 54 crate tests. |
 | Accessibility | partial | `tui`, CLI | `ui.high_contrast` uses a high-contrast palette; `ui.reduced_motion` suppresses the busy spinner; `z session replay --plain` and `z blocks show --plain` emit ANSI-free text; keyboard navigation exists. No semantic screen-reader mode or focus announcements. |
 | i18n / RTL | not started | — | UI strings are English-only; no translation catalog or RTL layout. |
@@ -111,8 +112,9 @@ All destructive or agentic paths are deny-by-default and audited:
    is static and should be verified against provider pricing.
 6. **No scrollback persistence for raw session output.** Blocks are persisted
    to SQLite; a daemon restart loses the live screen and raw ring buffer.
-7. **Checkpoint/hunk workflow is file-level.** Hunk diffs are displayed, but
-   there is no “accept only this hunk” operation yet.
+7. **Hunk restore is line-based.** Selected hunks can be reverted (`--hunk`),
+   but binary files and diffs truncated at the line cap still need a full-file
+   restore.
 8. **Windows support is not complete.** The session daemon/client are Unix
    socket-only; the Windows named-pipe transport from the blueprint is absent.
 9. **Security convenience is deliberate, not a scanner.** Target extraction
@@ -154,7 +156,5 @@ real JSON-RPC handshake and `z agent run` with a local adapter.
 4. Daemon-owned scrollback persistence and Windows transport.
 5. Hunk-level checkpoint accept/reject.
 6. Benchmark harness and CI regression gate.
-7. TLS inspection backend (the native TLS module still reports `Unsupported`
-   rather than fabricating a certificate chain) and an xterm.js/WebSocket web
-   observer.
-8. SSH domains, web observer tokens and the enterprise control plane.
+7. An xterm.js/WebSocket web observer (the current observer is plain text over
+   HTTP) and a GPU renderer; SSH domains and the enterprise control plane.

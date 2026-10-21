@@ -2,6 +2,23 @@
 
 ## Unreleased — blueprint implementation
 
+### Hunk-level checkpoint accept
+- Added `CheckpointStore::restore_hunks` and `z checkpoint restore --hunk
+  <path>:<index[,index]>`: selected hunks revert to the snapshot while other
+  edits stay. Every selection is validated before writing, duplicate/invalid
+  indices are rejected, added files are removed when fully reverted, and an
+  all-hunks restore is verified against the blob. 3 new unit tests plus a CLI
+  integration test.
+
+### TLS inspection
+- Added a native rustls (ring) TLS inspector (`z engine run tls inspect`,
+  phase-3 `tls` engine and the `tls.inspect` native tool engine): verifies the
+  chain against OS roots with a webpki-roots fallback, reports version, cipher,
+  subject, issuer, SANs and expiry, and computes RFC 6125 hostname matches.
+  Rejected certificates are reported with `certificate_trusted: false` via a
+  read-only unverified handshake — never as verified. 7 tests include a local
+  TLS server; a live `example.com` check negotiated TLS 1.3.
+
 ### Performance and CI
 - Added the `z-bench` harness and a `Performance gate` CI job: VT parsing
   (policy-checked and raw), screen search, block insert/FTS search, durable

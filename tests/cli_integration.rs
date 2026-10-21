@@ -449,6 +449,31 @@ fn plugin_validation_accepts_a_minimal_wasm_header() {
 }
 
 #[test]
+fn tls_engine_is_wired_and_reports_failure_honestly() {
+    let env = Env::new("tls-engine");
+    let (out, _, code) = run(&env, &env.project(), &["--json", "engine", "info", "tls"]);
+    assert_eq!(code, 0, "{out}");
+    let info: serde_json::Value = serde_json::from_str(&out).expect("valid json");
+    assert_eq!(info["capabilities"]["supported"], true);
+    assert!(info["capabilities"]["description"]
+        .as_str()
+        .unwrap()
+        .contains("rustls"));
+
+    // A refused port must be reported as a failed inspection, not fabricated
+    // certificate data, and the CLI itself succeeds with a status object.
+    let (out, _, code) = run(
+        &env,
+        &env.project(),
+        &["--json", "engine", "run", "tls", "inspect", "127.0.0.1:1"],
+    );
+    assert_eq!(code, 0, "{out}");
+    let result: serde_json::Value = serde_json::from_str(&out).expect("valid json");
+    assert_eq!(result["engine"], "tls");
+    assert_eq!(result["status"], "failed");
+}
+
+#[test]
 fn upgrade_without_a_manifest_fails_honestly() {
     let env = Env::new("upgrade");
     let (_, err, code) = run(&env, &env.project(), &["upgrade", "check"]);
@@ -773,6 +798,47 @@ fn checkpoint_rolls_back_and_removes_added_files() {
         "original\n"
     );
     assert!(!root.join("added.txt").exists());
+}
+
+#[test]
+fn checkpoint_restore_hunk_reverts_only_the_selected_hunk() {
+    let env = Env::new("checkpoint-hunk");
+    let root = env.project();
+    let original: String = (1..=20).map(|i| format!("line{i:02}\n")).collect();
+    std::fs::write(root.join("numbers.txt"), &original).unwrap();
+    let (out, err, code) = run(&env, &root, &["checkpoint", "create", "."]);
+    assert_eq!(code, 0, "{err}");
+    let id = out.trim();
+    assert!(id.starts_with("cp_"), "{out}");
+
+    let modified = original
+        .replace("line02", "CHANGED02")
+        .replace("line19", "CHANGED19");
+    std::fs::write(root.join("numbers.txt"), &modified).unwrap();
+    let (diff, err, code) = run(&env, &root, &["checkpoint", "diff", id, "."]);
+    assert_eq!(code, 0, "{err}");
+    assert!(diff.matches("@@").count() >= 2, "{diff}");
+
+    let (_, err, code) = run(
+        &env,
+        &root,
+        &[
+            "checkpoint",
+            "restore",
+            id,
+            "--hunk",
+            "numbers.txt:0",
+            "--no-backup",
+        ],
+    );
+    assert_eq!(code, 0, "{err}");
+    let after = std::fs::read_to_string(root.join("numbers.txt")).unwrap();
+    assert!(after.contains("line02"), "{after}");
+    assert!(!after.contains("CHANGED02"), "{after}");
+    assert!(
+        after.contains("CHANGED19"),
+        "second hunk must stay: {after}"
+    );
 }
 
 #[test]

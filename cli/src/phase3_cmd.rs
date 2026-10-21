@@ -91,6 +91,52 @@ pub fn engine(args: &[String], json_out: bool) -> ZenResult<()> {
             }
             Ok(())
         }
+        Some("run") => {
+            let name = args.get(1).ok_or_else(|| {
+                ZenError::new(
+                    Area::Cfg,
+                    5203,
+                    "usage: z engine run <engine> [operation] <target>",
+                )
+            })?;
+            let operation =
+                args.get(2)
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| match name.as_str() {
+                        "tls" => "inspect".to_string(),
+                        "dns" => "resolve".to_string(),
+                        _ => "analyze".to_string(),
+                    });
+            let target = args.get(3).or_else(|| args.get(2)).ok_or_else(|| {
+                ZenError::new(
+                    Area::Cfg,
+                    5204,
+                    "usage: z engine run <engine> [operation] <target>",
+                )
+            })?;
+            let request = z_native::phase3::EngineRequest {
+                engine: name.clone(),
+                operation: operation.clone(),
+                input: json!({"target": target}),
+            };
+            let result = registry.execute(&request)?;
+            if json_out {
+                println!("{}", serde_json::to_string_pretty(&result)?);
+            } else {
+                println!("engine:  {} ({})", result.engine, result.status);
+                for finding in &result.findings {
+                    println!(
+                        "[{:?}] {} — {}",
+                        finding.severity, finding.title, finding.description
+                    );
+                }
+                println!("{}", serde_json::to_string_pretty(&result.data)?);
+                if !result.stderr.is_empty() {
+                    eprintln!("{}", result.stderr);
+                }
+            }
+            Ok(())
+        }
         Some("doctor") => {
             let list = registry.list();
             let supported = list.iter().filter(|e| e.capabilities.supported).count();
@@ -117,7 +163,7 @@ pub fn engine(args: &[String], json_out: bool) -> ZenResult<()> {
             5202,
             format!("unknown engine subcommand '{other}'"),
         )
-        .with_remediation("Usage: z engine [list|info|doctor]")),
+        .with_remediation("Usage: z engine [list|info|run|doctor]")),
     }
 }
 

@@ -195,6 +195,22 @@ pub struct RestoreReport {
     pub signature_valid: Option<bool>,
 }
 
+/// One file's selected hunks, using indices from
+/// [`CheckpointStore::diff_current`].
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct HunkSelection {
+    pub path: String,
+    pub hunks: Vec<usize>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct HunkRestoreReport {
+    pub files: usize,
+    pub hunks: usize,
+    pub deleted: usize,
+    pub bytes: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GcReport {
     pub manifests_removed: usize,
@@ -566,6 +582,184 @@ impl CheckpointStore {
         paths: &[String],
     ) -> Result<RestoreReport> {
         self.restore_inner(id, workspace, Some(paths), false)
+    }
+
+    /// Revert only selected hunks to their checkpoint content, leaving other
+    /// edits in the same file untouched.
+    ///
+    /// Hunk indices come from [`Self::diff_current`]. All selections are
+    /// validated before anything is written; a file with all of its hunks
+    /// selected is verified against the checkpoint blob.
+    pub fn restore_hunks(
+        &self,
+        id: &str,
+        workspace: &Path,
+        selections: &[HunkSelection],
+    ) -> Result<HunkRestoreReport> {
+        if selections.is_empty() {
+            return Err(err("no hunks selected"));
+        }
+        let manifest = self.load(id)?;
+        if self.signature_valid(&manifest) == Some(false) {
+            return Err(err(format!(
+                "checkpoint {id} signature is invalid; refusing to restore hunks"
+            )));
+        }
+        let root = workspace
+            .canonicalize()
+            .map_err(|e| err(format!("cannot resolve {}: {e}", workspace.display())))?;
+        if root.display().to_string() != manifest.repo {
+            return Err(err(format!(
+                "checkpoint belongs to {} not {}",
+                manifest.repo,
+                root.display()
+            )));
+        }
+        let _lock = WorkspaceLock::acquire(&self.locks, &root)?;
+        let diff = self.diff_current(id, &root)?;
+        let by_path: BTreeMap<&str, &FileDiff> = diff
+            .files
+            .iter()
+            .map(|file| (file.path.as_str(), file))
+            .collect();
+
+        // Validate every selection before writing anything.
+        for selection in selections {
+            let file = by_path.get(selection.path.as_str()).ok_or_else(|| {
+                err(format!(
+                    "{} is not different from checkpoint {id}",
+                    selection.path
+                ))
+            })?;
+            if file.binary || file.truncated {
+                return Err(err(format!(
+                    "{} cannot be restored hunk-by-hunk (binary or truncated diff)",
+                    selection.path
+                )));
+            }
+            if selection.hunks.is_empty() {
+                return Err(err(format!("no hunks selected for {}", selection.path)));
+            }
+            let mut seen = BTreeSet::new();
+            for index in &selection.hunks {
+                if *index >= file.hunks.len() {
+                    return Err(err(format!(
+                        "hunk {index} does not exist for {} (only {} hunks)",
+                        selection.path,
+                        file.hunks.len()
+                    )));
+                }
+                if !seen.insert(*index) {
+                    return Err(err(format!(
+                        "hunk {index} selected twice for {}",
+                        selection.path
+                    )));
+                }
+            }
+        }
+
+        let mut report = HunkRestoreReport::default();
+        for selection in selections {
+            let file = by_path[selection.path.as_str()];
+            let target = root.join(safe_relative(&selection.path)?);
+            if file.status == FileStatus::Removed {
+                let entry = manifest.file(&selection.path).ok_or_else(|| {
+                    err(format!(
+                        "{} is missing from the checkpoint manifest",
+                        selection.path
+                    ))
+                })?;
+                let bytes = self.get_blob(&entry.hash)?;
+                if sha256_hex(&bytes) != entry.hash {
+                    return Err(err(format!(
+                        "blob for {} is corrupt (hash mismatch)",
+                        selection.path
+                    )));
+                }
+                if let Some(parent) = target.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::write(&target, &bytes)?;
+                report.files += 1;
+                report.hunks += selection.hunks.len();
+                report.bytes += bytes.len() as u64;
+                continue;
+            }
+
+            let text = std::fs::read_to_string(&target).map_err(|e| {
+                err(format!(
+                    "{} is not a readable UTF-8 text file: {e}",
+                    selection.path
+                ))
+            })?;
+            let mut lines: Vec<String> = text.split('\n').map(str::to_string).collect();
+            let mut indices = selection.hunks.clone();
+            indices.sort_unstable();
+            for index in indices.into_iter().rev() {
+                let hunk = &file.hunks[index];
+                let start = hunk.new_start.checked_sub(1).ok_or_else(|| {
+                    err(format!(
+                        "hunk {index} for {} has no location in the current file",
+                        selection.path
+                    ))
+                })?;
+                let end = start.checked_add(hunk.new_lines).ok_or_else(|| {
+                    err(format!(
+                        "hunk {index} for {} overflows the line range",
+                        selection.path
+                    ))
+                })?;
+                if end > lines.len() {
+                    return Err(err(format!(
+                        "hunk {index} for {} is outside the current file ({} lines)",
+                        selection.path,
+                        lines.len()
+                    )));
+                }
+                let replacement: Vec<String> = hunk
+                    .lines
+                    .iter()
+                    .filter(|line| line.kind != "+")
+                    .map(|line| line.text.clone())
+                    .collect();
+                lines.splice(start..end, replacement);
+                report.hunks += 1;
+            }
+
+            let all_selected = selection.hunks.len() == file.hunks.len();
+            let result = lines.join("\n");
+            if file.status == FileStatus::Added && result.is_empty() {
+                if target.is_file() {
+                    std::fs::remove_file(&target)?;
+                    report.deleted += 1;
+                }
+                report.files += 1;
+                continue;
+            }
+            if all_selected && file.status == FileStatus::Modified {
+                let entry = manifest.file(&selection.path).ok_or_else(|| {
+                    err(format!(
+                        "{} is missing from the checkpoint manifest",
+                        selection.path
+                    ))
+                })?;
+                if sha256_hex(result.as_bytes()) != entry.hash {
+                    return Err(err(format!(
+                        "restoring all hunks of {} did not reproduce the checkpoint content",
+                        selection.path
+                    )));
+                }
+            }
+            if let Some(parent) = target.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            let tmp = target.with_extension("zentrion-hunk-tmp");
+            std::fs::write(&tmp, result.as_bytes())?;
+            std::fs::rename(&tmp, &target)?;
+            report.files += 1;
+            report.bytes += result.len() as u64;
+        }
+        Ok(report)
     }
 
     /// Restore allowing the workspace to have moved.
@@ -1354,6 +1548,123 @@ mod tests {
         assert_eq!(report.manifests_removed, 0);
         assert!(report.blobs_removed >= 2);
         assert_eq!(store.blob_count(), 0);
+        let _ = std::fs::remove_dir_all(&ws);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn restores_only_selected_hunks_and_all_hunks_reproduce_the_blob() {
+        let ws = workspace("hunks");
+        let original: String = (1..=20).map(|i| format!("line{i:02}\n")).collect();
+        std::fs::write(ws.join("src/numbers.txt"), &original).unwrap();
+        let (store, base) = store("hunks");
+        let manifest = store.snapshot(&ws, &CheckpointOptions::default()).unwrap();
+        let modified = original
+            .replace("line02", "CHANGED02")
+            .replace("line19", "CHANGED19");
+        std::fs::write(ws.join("src/numbers.txt"), &modified).unwrap();
+        let diff = store.diff_current(&manifest.id, &ws).unwrap();
+        let file = diff
+            .files
+            .iter()
+            .find(|file| file.path == "src/numbers.txt")
+            .expect("diff for numbers.txt");
+        assert!(file.hunks.len() >= 2, "expected two hunks: {file:?}");
+
+        // Accept only the first hunk: line02 reverts, line19 stays changed.
+        let report = store
+            .restore_hunks(
+                &manifest.id,
+                &ws,
+                &[HunkSelection {
+                    path: "src/numbers.txt".into(),
+                    hunks: vec![0],
+                }],
+            )
+            .unwrap();
+        assert_eq!(report.hunks, 1);
+        let after = std::fs::read_to_string(ws.join("src/numbers.txt")).unwrap();
+        assert!(after.contains("line02"), "{after}");
+        assert!(!after.contains("CHANGED02"), "{after}");
+        assert!(after.contains("CHANGED19"), "{after}");
+
+        // Accept the remaining hunk; the file must be byte-identical to the
+        // snapshot (the implementation verifies this against the blob).
+        let diff = store.diff_current(&manifest.id, &ws).unwrap();
+        let file = diff
+            .files
+            .iter()
+            .find(|file| file.path == "src/numbers.txt")
+            .unwrap();
+        let indices: Vec<usize> = (0..file.hunks.len()).collect();
+        store
+            .restore_hunks(
+                &manifest.id,
+                &ws,
+                &[HunkSelection {
+                    path: "src/numbers.txt".into(),
+                    hunks: indices,
+                }],
+            )
+            .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(ws.join("src/numbers.txt")).unwrap(),
+            original
+        );
+        let _ = std::fs::remove_dir_all(&ws);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn accepts_an_added_file_by_removing_it() {
+        let ws = workspace("hunk-added");
+        let (store, base) = store("hunk-added");
+        let manifest = store.snapshot(&ws, &CheckpointOptions::default()).unwrap();
+        std::fs::write(ws.join("NEW.md"), "brand new\n").unwrap();
+        store
+            .restore_hunks(
+                &manifest.id,
+                &ws,
+                &[HunkSelection {
+                    path: "NEW.md".into(),
+                    hunks: vec![0],
+                }],
+            )
+            .unwrap();
+        assert!(!ws.join("NEW.md").exists());
+        let _ = std::fs::remove_dir_all(&ws);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn invalid_hunk_selection_writes_nothing() {
+        let ws = workspace("hunk-invalid");
+        let (store, base) = store("hunk-invalid");
+        let manifest = store.snapshot(&ws, &CheckpointOptions::default()).unwrap();
+        std::fs::write(ws.join("src/lib.rs"), "fn changed() {}\n").unwrap();
+        std::fs::write(ws.join("README.md"), "# changed\n").unwrap();
+        let before = std::fs::read_to_string(ws.join("src/lib.rs")).unwrap();
+        let error = store
+            .restore_hunks(
+                &manifest.id,
+                &ws,
+                &[
+                    HunkSelection {
+                        path: "src/lib.rs".into(),
+                        hunks: vec![0],
+                    },
+                    HunkSelection {
+                        path: "README.md".into(),
+                        hunks: vec![99],
+                    },
+                ],
+            )
+            .unwrap_err();
+        assert!(error.to_string().contains("hunk 99"), "{error}");
+        assert_eq!(
+            std::fs::read_to_string(ws.join("src/lib.rs")).unwrap(),
+            before
+        );
         let _ = std::fs::remove_dir_all(&ws);
         let _ = std::fs::remove_dir_all(&base);
     }

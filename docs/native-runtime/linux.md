@@ -18,6 +18,7 @@ this environment.
 | Process listing | Enumerates `/proc`, filters numeric entries | verified |
 | System memory | `MemTotal` / `MemAvailable` from `/proc/meminfo` | verified |
 | DNS | OS resolver for A/AAAA; built-in wire client for CNAME/MX/TXT/NS/SOA/PTR | verified |
+| TLS | rustls inspection: trust, version, cipher, certificate fields, SAN/hostname match | verified |
 | Sandbox level | `resource-limits` (no_new_privs + rlimits + non-dumpable + umask + PDEATHSIG) | implemented and reported honestly |
 | Process execution | `std::process::Command`, direct, no shell | verified |
 

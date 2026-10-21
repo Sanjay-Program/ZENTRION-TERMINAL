@@ -37,6 +37,7 @@ ZENTRION TERMINAL interprets your intent and dynamically routes the capability.
 
 ## Audit & Security
 
+*   `z checkpoint restore <id> --hunk <path>:<index[,index]>` — Reverts only those hunks to the snapshot, leaving other edits alone.
 *   `z audit tail` — Shows the last 20 events in the audit log.
 *   `z audit verify` — Verifies the SHA-256 hash chain and any Ed25519 event signatures.
 *   `z audit key` — Creates the local audit signing key so future events are signed.
@@ -66,9 +67,12 @@ ZENTRION TERMINAL interprets your intent and dynamically routes the capability.
 *   `z update` — Updates all outdated tools.
 *   `z remove <tool>` — Uninstalls a specific tool.
 
-## Network
+## Network & native engines
 
-*   `z run dnsx [--port N] [--type TYPE] <hostname>` — Runs the `dnsx` native engine (install it from the registry). With `--type` (A, AAAA, CNAME, MX, TXT, NS, SOA, PTR) it uses the built-in DNS query engine.
+*   `z engine list|info <name>|doctor` — Lists native engines and whether they are ready.
+*   `z engine run tls inspect example.com` — Inspects TLS: trust, version, cipher, subject/issuer, SANs, expiry and hostname match.
+*   `z engine run dns records example.com` — Queries a DNS record type (A/AAAA/CNAME/MX/TXT/NS/SOA/PTR); `z engine run dns reverse <ip>` reverse-resolves.
+*   `z run dnsx [--port N] [--type TYPE] <hostname>` — Runs the `dnsx` native engine (install it from the registry). With `--type` it uses the built-in DNS query engine.
 *   `z run dnsx --type PTR <ip>` — Reverse-resolves an IPv4/IPv6 address.
 
 ## Emergency Controls

@@ -725,31 +725,122 @@ impl Engine for TlsEngine {
         EngineCapabilities {
             operations: vec!["inspect".into(), "analyze".into()],
             native: true,
-            supported: false,
+            supported: true,
             description: tls::backend_description().to_string(),
         }
     }
 
     fn execute(&self, request: &EngineRequest) -> ZenResult<EngineResult> {
-        let target = as_string(request.input.get("target")).unwrap_or_else(|| "unknown".into());
-        Ok(EngineResult {
-            status: "unsupported".into(),
-            engine: self.name().into(),
-            data: json!({"target": target, "message": tls::backend_description()}),
-            findings: vec![finding(
-                "TLS inspection unavailable",
-                Severity::Info,
-                1.0,
-                Some(asset(AssetKind::Url, target)),
-                vec![tls::backend_description().into()],
-                "The runtime does not yet ship a TLS inspection backend.",
-                "Add a verified TLS backend before relying on certificate analysis.",
-                "tls",
-            )],
-            stdout: String::new(),
-            stderr: String::new(),
-            duration_ms: 0,
-        })
+        let started = now_millis();
+        let target = as_string(request.input.get("target"))
+            .ok_or_else(|| json_error(self.name(), &request.operation, "missing target"))?;
+        let (host, port) = parse_tls_target(&target);
+        match tls::inspect(&host, port) {
+            tls::TlsOutcome::Info(info) => {
+                let mut findings = Vec::new();
+                if info.certificate_trusted == Some(false) {
+                    findings.push(finding(
+                        "TLS certificate is not trusted",
+                        Severity::High,
+                        0.95,
+                        Some(asset(AssetKind::Certificate, host.clone())),
+                        vec![format!(
+                            "subject: {}; issuer: {}",
+                            info.peer_certificate_subject.as_deref().unwrap_or("?"),
+                            info.peer_certificate_issuer.as_deref().unwrap_or("?")
+                        )],
+                        "The certificate chain did not validate against the system trust store.",
+                        "Treat the endpoint as unauthenticated until the certificate is explained.",
+                        "tls",
+                    ));
+                }
+                if info.hostname_matches == Some(false) {
+                    findings.push(finding(
+                        "TLS hostname does not match the certificate",
+                        Severity::High,
+                        0.98,
+                        Some(asset(AssetKind::Certificate, host.clone())),
+                        vec![format!(
+                            "requested {host}; SANs: {}",
+                            info.subject_alt_names.join(", ")
+                        )],
+                        "A certificate valid for another name does not authenticate this host.",
+                        "Do not send credentials; verify the endpoint out of band.",
+                        "tls",
+                    ));
+                }
+                Ok(EngineResult {
+                    status: "success".into(),
+                    engine: self.name().into(),
+                    data: json!({
+                        "target": target,
+                        "host": host,
+                        "port": port,
+                        "verified": info.certificate_trusted,
+                        "tls": info,
+                        "assets": [asset(AssetKind::Certificate, host)],
+                    }),
+                    findings,
+                    stdout: String::new(),
+                    stderr: String::new(),
+                    duration_ms: u128::from(now_millis().saturating_sub(started)),
+                })
+            }
+            tls::TlsOutcome::Unsupported(message) => Ok(EngineResult {
+                status: "unsupported".into(),
+                engine: self.name().into(),
+                data: json!({"target": target, "message": message}),
+                findings: vec![],
+                stdout: String::new(),
+                stderr: message.into(),
+                duration_ms: u128::from(now_millis().saturating_sub(started)),
+            }),
+            tls::TlsOutcome::Failed(message) => Ok(EngineResult {
+                status: "failed".into(),
+                engine: self.name().into(),
+                data: json!({"target": target, "message": message}),
+                findings: vec![finding(
+                    "TLS inspection failed",
+                    Severity::Low,
+                    0.8,
+                    Some(asset(AssetKind::Host, target)),
+                    vec![message.clone()],
+                    "The TLS handshake could not be completed.",
+                    "Verify reachability, the port and any interception proxy.",
+                    "tls",
+                )],
+                stdout: String::new(),
+                stderr: message,
+                duration_ms: u128::from(now_millis().saturating_sub(started)),
+            }),
+        }
+    }
+}
+
+fn parse_tls_target(target: &str) -> (String, u16) {
+    let rest = target
+        .strip_prefix("https://")
+        .or_else(|| target.strip_prefix("tls://"))
+        .unwrap_or(target);
+    let authority = rest.split('/').next().unwrap_or(rest);
+    let authority = authority
+        .rsplit_once('@')
+        .map(|(_, h)| h)
+        .unwrap_or(authority);
+    if let Some(stripped) = authority.strip_prefix('[') {
+        if let Some((host, tail)) = stripped.split_once(']') {
+            let port = tail
+                .strip_prefix(':')
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(443);
+            return (host.to_string(), port);
+        }
+    }
+    match authority.rsplit_once(':') {
+        Some((host, port)) if port.chars().all(|c| c.is_ascii_digit()) && !port.is_empty() => {
+            (host.to_string(), port.parse().unwrap_or(443))
+        }
+        _ => (authority.to_string(), 443),
     }
 }
 

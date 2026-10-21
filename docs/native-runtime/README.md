@@ -17,7 +17,7 @@ instead of faking it.
                 |             |             |
         +-------+-------+     |      +------+------+
         |       |       |     |      |      |      |
-      Policy Capability Audit |   DNS   HTTP   TLS*
+      Policy Capability Audit |   DNS   HTTP   TLS
         +-------+-------+     |      |      |      |
                 |             |      +------+------+
          Native Execution -----+
@@ -27,8 +27,6 @@ instead of faking it.
       Windows  macOS  Linux  (all via OS APIs)
 ```
 
-\* TLS inspection is defined but not implemented in Phase 2 — see below.
-
 ## Architecture in one sentence
 
 Every subsystem is a trait with a per-platform implementation:
@@ -37,9 +35,9 @@ Every subsystem is a trait with a per-platform implementation:
 PlatformResolver   OS + arch + ABI  →  PlatformTarget
 ProcessInspector   /proc on Linux, libproc on macOS*, Toolhelp32 on Windows*
 FilesystemInspector std::fs (+ Unix mode bits) — genuinely native everywhere
-DNS                OS resolver for A/AAAA; wire protocol for other types*
+DNS                OS resolver for A/AAAA; wire protocol for other types
 HTTP               interface only; transport is an opt-in build feature
-TLS                interface only; no backend compiled in Phase 2
+TLS                rustls (ring) client, OS roots + webpki fallback
 ```
 
 `*` = written and compiled only on its own target; **UNVERIFIED** here.
@@ -57,7 +55,7 @@ Verified on Linux x64 in this environment:
 | DNS record lookups (OS resolver + wire client) | Implemented, tested (offline-safe) |
 | Sandbox level reporting | Implemented, tested (honest per-platform) |
 | HTTP transport | Interface only — opt-in `http` feature |
-| TLS inspection | Interface only — returns `Unsupported` |
+| TLS inspection | Implemented, tested (local server + live TLS 1.3) |
 
 ## Honest platform matrix
 
@@ -68,6 +66,7 @@ Verified on Linux x64 in this environment:
 | Filesystem inspection | verified | unverified | unverified |
 | System memory info | verified (`/proc/meminfo`) | returns `None` | returns `None` |
 | DNS records | verified | unverified | unverified |
+| TLS inspection | verified | unverified | unverified |
 | Sandbox level reported | maximum | filesystem+network | resource-limits |
 
 "Not implemented" means the trait returns `Unsupported` with a message. It does

@@ -10,6 +10,13 @@ z-core = { path = "../core" }
 serde.workspace = true
 serde_json.workspace = true
 regex = "1.10"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+rustls-native-certs = "0.8"
+webpki-roots = "0.26"
+x509-parser = "0.18"
+
+[dev-dependencies]
+rcgen = "0.14"
 
 [features]
 # Network transport for the registry client and artifact downloads. Off by
