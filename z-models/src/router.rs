@@ -299,8 +299,12 @@ impl Router {
         Ok(routes)
     }
 
-    /// Execute a request with fallback, retries, budget reservations and cache.
-    pub fn chat(&self, request: RouteRequest) -> Result<ChatOutcome, RouterError> {
+    /// Execute a request with fallback, retries, budget reservations, cache, and token streaming.
+    pub fn chat_stream(
+        &self,
+        request: RouteRequest,
+        mut on_token: impl FnMut(&str) -> Result<(), ()>,
+    ) -> Result<ChatOutcome, RouterError> {
         // Credential-shaped strings never leave the machine. Redaction can
         // change the prompt, so such prompts are not cached.
         let mut messages = request.messages.clone();
@@ -325,6 +329,7 @@ impl Router {
                 .all(|message| z_blocks::redact(&message.content).1.is_empty());
         if cacheable {
             if let Some((cached, cached_route)) = self.cache_get(&cache_key) {
+                let _ = on_token(&cached.text);
                 return Ok(ChatOutcome {
                     text: cached.text.clone(),
                     route: cached_route,
@@ -364,9 +369,13 @@ impl Router {
                     }
                 };
                 let started = Instant::now();
-                let result = self
-                    .transport
-                    .chat(&route, &messages, max_output, request.timeout);
+                let result = self.transport.chat_stream(
+                    &route,
+                    &messages,
+                    max_output,
+                    request.timeout,
+                    &mut on_token,
+                );
                 let duration_ms = started.elapsed().as_millis() as u64;
                 match result {
                     Ok(mut output) => {
@@ -431,6 +440,11 @@ impl Router {
             self.record_failure(&route.reference);
         }
         Err(RouterError::AllFailed(attempts))
+    }
+
+    /// Execute a request with fallback, retries, budget reservations and cache.
+    pub fn chat(&self, request: RouteRequest) -> Result<ChatOutcome, RouterError> {
+        self.chat_stream(request, |_| Ok(()))
     }
 
     fn breaker_open(&self, reference: &str) -> bool {
@@ -973,5 +987,24 @@ mod tests {
         assert_eq!(summary.budget_usd, 10.0);
         assert_eq!(summary.requests, 0);
         let _ = BTreeMap::<String, f64>::new();
+    }
+
+    #[test]
+    fn streaming_delivers_tokens_and_handles_cancellation() {
+        let transport = MockTransport::new(&[]);
+        let config = test_config();
+        let router = test_router(&config, transport, 10.0);
+        let mut tokens = Vec::new();
+        let outcome = router
+            .chat_stream(
+                RouteRequest::new("chat", vec![ChatMessage::user("hello")]),
+                |token| {
+                    tokens.push(token.to_string());
+                    Ok(())
+                },
+            )
+            .unwrap();
+        assert!(!tokens.is_empty());
+        assert_eq!(outcome.text, tokens.join(""));
     }
 }

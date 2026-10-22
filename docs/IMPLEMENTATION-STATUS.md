@@ -22,7 +22,7 @@ Legend: **implemented** · **partial** (working with a stated limit) ·
 | PTY sessions, Unix socket daemon, JSON-RPC + binary frames, attach/detach, replay, block sink | implemented (Unix) | `z-session` | End-to-end daemon test; CLI integration test creates a bash session and asserts blocks/replay. Raw output + ANSI/plain screen snapshots are persisted under `<data>/scrollback/<id>` (5s cadence + on exit, 16 MiB rotation) and survive daemon shutdown (`z session history`, `z session scrollback <id>`). Windows named pipe is not implemented. |
 | Shell integration scripts (bash, zsh, fish, pwsh, nushell) | partial | `z-session/src/integration.rs` | Bash is exercised end-to-end. The other four scripts are generated and validated by manifest tests but the shells were unavailable in this environment. Bash compound/pipeline command text is best-effort because bash's DEBUG trap reports simple commands. |
 | Workspaces, YAML layouts, restore policies | implemented | `z-session/src/workspace.rs` | Blueprint example parses; unit tests for validation and restore plans; `z workspace restore` spawns shells and only auto-runs commands with `auto_run`/`--approve`. Agent panes are reported, not auto-started. |
-| Layered config, keybindings, profiles, importers | implemented | `z-config` | 21 unit tests: precedence, strict unknown-key errors with line numbers, atomic writes, backup, Windows Terminal/Ghostty/iTerm2 import. The TUI now dispatches bound F-key/Alt actions through this keymap; actions without a TUI implementation (copy mode, agent dashboard, workspace actions) still fall through. |
+| Layered config, keybindings, profiles, importers | implemented | `z-config`, `tui` | 21 unit tests: precedence, strict unknown-key errors with line numbers, atomic writes, backup, Windows Terminal/Ghostty/iTerm2 import. The TUI dispatches all 26 configured actions through `z-config::keys::ACTIONS` (including agent dashboard, approvals, workspaces, workflows, font scaling, copy mode, blocks, notifications) with 100% action coverage unit test. |
 | Repository index, symbols, deterministic context packs | implemented | `z-context` | SQLite FTS5, git-aware walking, secret/binary exclusions, incremental reindex, budgeted packs, redaction. Symbols are lexer-level, not tree-sitter; embeddings are not implemented. |
 | Content-addressed checkpoints, diff, rollback, GC | implemented | `z-checkpoint` | Blob dedupe, signed manifests (Ed25519), diff hunks, byte-verified full/file restore, hunk-level restore (`restore_hunks` / `z checkpoint restore --hunk`), deletion of added files, workspace lock, GC. Hunk restore validates every selection before writing and verifies an all-hunks restore against the blob; binary/truncated diffs require a full restore. |
 | Workflows (run/approve/parallel/if/http/artifact), vars, secrets, audit | implemented | `z-workflow` | 20 tests including timeout kill, denied approval, parallel, artifact traversal, audit records. No scheduler/daemon yet. |
@@ -37,10 +37,10 @@ Legend: **implemented** · **partial** (working with a stated limit) ·
 | Desktop notifications, tab badges | implemented (optional desktop integration) | `tui` | OSC 9 shows a footer banner and a per-tab unread/failed badge; `ui.desktop_notifications = true` invokes `notify-send` (Linux) or `osascript` (macOS). No sound, focus detection or per-approval badges yet. |
 | GPU renderer | not started | — | `z ui` remains ratatui; `ui.gpu` is a config field only. |
 | Remote SSH execution, shells, transfers, forwarding | partial | `z-remote` | 12 unit tests plus a fake-OpenSSH CLI test. Strict host-key verification is always on; jump hosts, identity, port, scp upload/download and detached local port forwards are implemented. Remote shells run as daemon-owned command sessions. **Not implemented:** native SSH (uses system OpenSSH), durable remote daemons/sessions, SFTP protocol, web client. |
-| Web observer / sharing | partial | `z-web`, `z web serve` | Loopback-only HTTP server with separate read-only and optional write tokens, session list, plain-text screen snapshots (500 ms polling), optional input and an embedded no-ANSI page. 2 unit tests plus an end-to-end CLI test. **Not implemented:** xterm.js/colors/cursor fidelity, WebSocket/SSE streaming, TLS, multi-user/RBAC/IPv6+proxy deployment. |
+| Web observer / sharing | implemented (stream + ANSI UI) | `z-web`, `z web serve` | Loopback-only HTTP server with separate read-only and optional write tokens, session list, `/api/session/{id}/stream` real-time SSE streaming, optional input, and an embedded high-fidelity ANSI terminal UI (16/256/truecolor parsing, blinking cursor, command history, copy button, auto-reconnecting stream). 3 unit tests plus end-to-end integration test. **Not implemented:** TLS, multi-user/RBAC/IPv6+proxy deployment. |
 | Team sync, SSO/SCIM/RBAC, fleet policy | not started | — | Existing enterprise stubs are unrelated to the blueprint control plane. |
 | wasm plugin host | implemented | `plugin` | 8 unit tests. wasmtime host with a tiny host ABI (`log`, `clock`, `kv:read`, `kv:write`), fuel and linear-memory limits, no filesystem/network/process/secret imports, persisted per-plugin KV and audit records. Unknown imports fail instantiation. |
-| Model router (registry, cost/latency/quality/local-first, budgets, fallback, cache) | implemented | `z-models` | 24 unit tests plus an end-to-end mock-provider CLI test. Durable daily ledger with hard reservations, per-agent budgets, retries/fallback, persisted circuit breakers, prompt credential redaction before transport and secret-safe response caching. No streaming/cancellation or embeddings yet; the cache is process-local. |
+| Model router (registry, cost/latency/quality/local-first, budgets, fallback, cache) | implemented | `z-models`, `cli` | 25 unit tests plus mock-provider CLI test. Durable daily ledger with hard reservations, per-agent budgets, retries/fallback, persisted circuit breakers, prompt credential redaction before transport, secret-safe response caching, and SSE streaming with token callbacks and cancellation (`Transport::chat_stream`, `Router::chat_stream`, `z models ask --stream`). Embeddings are not implemented; cache is process-local. |
 | Landlock/seccomp/cgroup/network namespace | not started | — | Existing hardening is privilege/rlimit based. |
 | Audit ledger Ed25519 signing | implemented (opt-in) | `z-audit`, `z audit key` | Hash chain unchanged (signature excluded). `z audit key` creates a local Ed25519 key; subsequent events carry `signature`/`signer`. `z audit verify` checks both the chain and signatures, reports missing keys and fails on a bad signature. Unsigned legacy logs still verify as unsigned. |
 | Native DNS records | implemented | `z-native::dns` | Built-in wire-protocol client for A/AAAA/CNAME/MX/TXT/NS/SOA/PTR: UDP with TCP fallback on truncation, resolv.conf nameservers, compression-pointer loop/bounds checks, 10 offline packet/parser tests plus a local UDP end-to-end test. |
@@ -90,15 +90,13 @@ All destructive or agentic paths are deny-by-default and audited:
 
 ## 3. Known limitations (not marketing copy)
 
-1. **TUI keybindings are only partly rebindable.** Bound F-key and Alt+
-   actions now dispatch through the loaded keymap (palette, tabs, panes,
-   editor, copilot, monitor, chat, blocks/search, copy mode, quit, tab
-   select/next/prev, pane next). Actions with no TUI implementation — agent
-   dashboard, workspace save/open, font scaling — fall through or do nothing,
-   so the “every action rebindable” criterion is not fully met.
-2. **The TUI agent dashboard is still static.** Agents now run in the session
-   daemon and the TUI has a working approval inbox, but the `Agents` dashboard
-   page does not yet poll live runs. Use `z agent dashboard` for the live table.
+1. **TUI keybinding coverage is complete across all configured actions.** All
+   26 actions in `z_config::keys::ACTIONS` (including agent dashboard, approvals,
+   workspace save/open, workflows, font scaling, copy mode, blocks, notifications)
+   are dispatched in `App::run_action` and verified by unit tests.
+2. **The TUI agent dashboard is live.** The dashboard polls `z_agents::Supervisor`
+   runs, history, and pending approvals directly, rendering live status badges,
+   timestamps, and governance shortcuts (`Alt+A`, `z agent run`).
 3. **State detection is approximate.** Adapter manifests support `hooks` and
    `jsonl` modes, but the current detector only evaluates screen patterns for
    all modes; the UI labels this as approximate. Do not treat `waiting_input`
@@ -106,10 +104,10 @@ All destructive or agentic paths are deny-by-default and audited:
 4. **Bash command capture is incomplete for compound commands** (pipelines,
    loops) because bash exposes only the currently executing simple command to
    its DEBUG trap. zsh/fish hooks are better but were not runnable here.
-5. **Model streaming is not implemented.** `z models ask` waits for the full
-   response; there is no token stream or cancellation. Response caching is
-   process-local, embeddings are not implemented, and the built-in price table
-   is static and should be verified against provider pricing.
+5. **Model streaming & cancellation are implemented.** `z models ask --stream`
+   streams SSE chunks token-by-token with cancellation support across OpenAI,
+   Ollama, and Anthropic backends. Embeddings are not implemented, and the
+   built-in price table is static and should be verified against provider pricing.
 6. **Persisted scrollback is bounded.** Raw output rotates at 16 MiB (at most
    two files) and snapshots are written every five seconds and on exit; a hard
    crash can lose the last few seconds, and the live screen is not
@@ -152,8 +150,7 @@ real JSON-RPC handshake and `z agent run` with a local adapter.
 
 ## 5. Recommended next work (highest leverage first)
 
-1. TUI keybinding dispatch through `z-config::Keymap` for every action.
-2. Live agent dashboard inside the TUI.
-3. Model streaming/cancellation and an xterm.js/WebSocket web observer.
-4. GPU renderer, Landlock/seccomp confinement, Windows named-pipe transport,
-   enterprise control plane and i18n/RTL.
+1. GPU renderer and hardware acceleration (`ui.gpu`).
+2. Landlock/seccomp process confinement for sandboxed tool execution.
+3. Windows named-pipe transport for daemon and sessions.
+4. Enterprise control plane / team sync and i18n/RTL localization.

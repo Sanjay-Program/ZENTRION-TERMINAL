@@ -139,7 +139,18 @@ pub fn models(args: &[String], json_out: bool) -> ZenResult<()> {
             let ledger = ledger()?;
             let router = Router::new(config, ledger, Box::new(HttpTransport::new()))
                 .with_breaker_path(data_dir()?.join("models").join("breakers.json"));
-            match router.chat(request) {
+            let stream = !json_out && parsed.flag("--stream");
+            use std::io::Write;
+            let result = if stream {
+                router.chat_stream(request, |token| {
+                    print!("{token}");
+                    let _ = std::io::stdout().flush();
+                    Ok(())
+                })
+            } else {
+                router.chat(request)
+            };
+            match result {
                 Ok(outcome) => {
                     let _ = write_audit(
                         "user",
@@ -153,7 +164,11 @@ pub fn models(args: &[String], json_out: bool) -> ZenResult<()> {
                     if json_out {
                         return print_json(&serde_json::to_value(&outcome).unwrap_or(json!({})));
                     }
-                    println!("{}", outcome.text);
+                    if !stream {
+                        println!("{}", outcome.text);
+                    } else if !outcome.text.ends_with('\n') {
+                        println!();
+                    }
                     eprintln!(
                         "\n[{} via {}{} · {} in / {} out · ${:.4}]",
                         outcome.route.reference,

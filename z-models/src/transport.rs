@@ -72,6 +72,19 @@ pub trait Transport: Send + Sync {
         max_tokens: u32,
         timeout: Duration,
     ) -> Result<ChatOutput, TransportError>;
+
+    fn chat_stream(
+        &self,
+        route: &Route,
+        messages: &[ChatMessage],
+        max_tokens: u32,
+        timeout: Duration,
+        on_token: &mut dyn FnMut(&str) -> Result<(), ()>,
+    ) -> Result<ChatOutput, TransportError> {
+        let output = self.chat(route, messages, max_tokens, timeout)?;
+        let _ = on_token(&output.text);
+        Ok(output)
+    }
 }
 
 impl<T: Transport + ?Sized> Transport for std::sync::Arc<T> {
@@ -83,6 +96,40 @@ impl<T: Transport + ?Sized> Transport for std::sync::Arc<T> {
         timeout: Duration,
     ) -> Result<ChatOutput, TransportError> {
         (**self).chat(route, messages, max_tokens, timeout)
+    }
+
+    fn chat_stream(
+        &self,
+        route: &Route,
+        messages: &[ChatMessage],
+        max_tokens: u32,
+        timeout: Duration,
+        on_token: &mut dyn FnMut(&str) -> Result<(), ()>,
+    ) -> Result<ChatOutput, TransportError> {
+        (**self).chat_stream(route, messages, max_tokens, timeout, on_token)
+    }
+}
+
+impl<T: Transport + ?Sized> Transport for Box<T> {
+    fn chat(
+        &self,
+        route: &Route,
+        messages: &[ChatMessage],
+        max_tokens: u32,
+        timeout: Duration,
+    ) -> Result<ChatOutput, TransportError> {
+        (**self).chat(route, messages, max_tokens, timeout)
+    }
+
+    fn chat_stream(
+        &self,
+        route: &Route,
+        messages: &[ChatMessage],
+        max_tokens: u32,
+        timeout: Duration,
+        on_token: &mut dyn FnMut(&str) -> Result<(), ()>,
+    ) -> Result<ChatOutput, TransportError> {
+        (**self).chat_stream(route, messages, max_tokens, timeout, on_token)
     }
 }
 
@@ -101,6 +148,161 @@ impl Default for HttpTransport {
 }
 
 impl Transport for HttpTransport {
+    fn chat_stream(
+        &self,
+        route: &Route,
+        messages: &[ChatMessage],
+        max_tokens: u32,
+        timeout: Duration,
+        on_token: &mut dyn FnMut(&str) -> Result<(), ()>,
+    ) -> Result<ChatOutput, TransportError> {
+        let spec = route
+            .spec
+            .as_ref()
+            .ok_or_else(|| TransportError::InvalidResponse("route has no provider spec".into()))?;
+        let base = spec
+            .base_url
+            .as_deref()
+            .ok_or_else(|| TransportError::InvalidResponse("provider has no base URL".into()))?;
+        let key = match &spec.api_key_env {
+            Some(env) => {
+                Some(
+                    std::env::var(env).map_err(|_| TransportError::MissingCredential {
+                        provider: spec.id.clone(),
+                        env: env.clone(),
+                    })?,
+                )
+            }
+            None => None,
+        };
+        let agent = ureq::AgentBuilder::new().timeout(timeout).build();
+        let (url, body, auth_header) = match spec.kind {
+            ProviderKind::Anthropic => {
+                let url = format!("{}/v1/messages", base.trim_end_matches('/'));
+                let body = serde_json::json!({
+                    "model": route.model,
+                    "max_tokens": max_tokens,
+                    "stream": true,
+                    "messages": messages.iter().filter(|m| m.role != "system").map(|m| {
+                        serde_json::json!({"role": m.role, "content": m.content})
+                    }).collect::<Vec<_>>(),
+                    "system": messages.iter().filter(|m| m.role == "system").map(|m| m.content.clone()).collect::<Vec<_>>().join("\n\n"),
+                });
+                (
+                    url,
+                    body,
+                    Some(("x-api-key", key.clone().unwrap_or_default())),
+                )
+            }
+            _ => {
+                let url = format!("{}/chat/completions", base.trim_end_matches('/'));
+                let body = serde_json::json!({
+                    "model": route.model,
+                    "max_tokens": max_tokens,
+                    "stream": true,
+                    "messages": messages,
+                });
+                (
+                    url,
+                    body,
+                    key.clone()
+                        .map(|key| ("authorization", format!("Bearer {key}"))),
+                )
+            }
+        };
+        let mut request = agent.post(&url).set("content-type", "application/json");
+        if let Some((name, value)) = auth_header {
+            if !value.is_empty() {
+                request = request.set(name, &value);
+            }
+        }
+        if spec.kind == ProviderKind::Anthropic {
+            request = request.set("anthropic-version", "2023-06-01");
+        }
+        let response = match request.send_json(body) {
+            Ok(response) => response,
+            Err(ureq::Error::Status(status, response)) => {
+                let body = response
+                    .into_string()
+                    .unwrap_or_default()
+                    .chars()
+                    .take(500)
+                    .collect::<String>();
+                let (body, _) = z_blocks::redact(&body);
+                return Err(TransportError::Status { status, body });
+            }
+            Err(ureq::Error::Transport(error)) => {
+                let text = error.to_string();
+                let (text, _) = z_blocks::redact(&text);
+                return Err(TransportError::Network(text));
+            }
+        };
+
+        use std::io::BufRead;
+        let reader = std::io::BufReader::new(response.into_reader());
+        let mut full_text = String::new();
+        let mut user_cancelled = false;
+
+        for line_res in reader.lines() {
+            let line = match line_res {
+                Ok(l) => l,
+                Err(_) => break,
+            };
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            if let Some(data) = line.strip_prefix("data:") {
+                let data = data.trim();
+                if data == "[DONE]" {
+                    break;
+                }
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(data) {
+                    let chunk = match spec.kind {
+                        ProviderKind::Anthropic => val
+                            .pointer("/delta/text")
+                            .and_then(|t| t.as_str())
+                            .map(|s| s.to_string()),
+                        _ => val
+                            .pointer("/choices/0/delta/content")
+                            .and_then(|t| t.as_str())
+                            .map(|s| s.to_string()),
+                    };
+                    if let Some(text_chunk) = chunk {
+                        if !text_chunk.is_empty() {
+                            full_text.push_str(&text_chunk);
+                            if on_token(&text_chunk).is_err() {
+                                user_cancelled = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if full_text.is_empty() && !user_cancelled {
+            let output = self.chat(route, messages, max_tokens, timeout)?;
+            let _ = on_token(&output.text);
+            return Ok(output);
+        }
+
+        let tokens_in = estimate_tokens(messages);
+        let tokens_out = estimate_tokens_text(&full_text);
+        let cost_micros = crate::ledger::estimate_micros(
+            spec.input_cost_per_mtok,
+            spec.output_cost_per_mtok,
+            tokens_in as usize,
+            tokens_out as u32,
+        );
+        Ok(ChatOutput {
+            text: full_text,
+            tokens_in,
+            tokens_out,
+            cost_micros,
+            cached: false,
+        })
+    }
     fn chat(
         &self,
         route: &Route,

@@ -2,6 +2,42 @@
 
 ## Unreleased — blueprint implementation
 
+### TUI Keybinding Action Dispatch & Coverage
+- Implemented full action dispatch in `tui::App::run_action` for all 26 configured
+  actions in `z_config::keys::ACTIONS`. Added handling for `agents.dashboard`,
+  `agents.approve`, `agents.deny`, `workspace.save`, `workspace.open`,
+  `session.attach`, `app.help`, `workflow.run`, `security.engagement`,
+  `blocks.rerun`, `blocks.share`, `blocks.pin`, `notification.dnd`,
+  `font.increase`, `font.decrease`, and `leader`.
+- Added unit test `tests::all_configured_actions_are_handled` verifying 100%
+  coverage across all configured action strings.
+
+### Dynamic TUI Agent Dashboard & Governance
+- Replaced static placeholder agent view with live polling of `z_agents::Supervisor`
+  active runs, history records, and `approvals.json` pending broker inbox.
+- Added colorized agent status badges (`running`, `waiting_input`, `completed`,
+  `failed`), timestamps, session links, and governance shortcuts (`Alt+A` approval
+  inbox, `z agent run`).
+
+### LLM Token Streaming & Cancellation
+- Extended `Transport` trait in `z-models` with `chat_stream` supporting line-by-line
+  Server-Sent Events (SSE) streaming for OpenAI, Ollama, and Anthropic backends.
+- Added token callback support and cancellation detection to `Router::chat_stream`,
+  retaining upfront cost reservation, prompt credential redaction, response caching,
+  and ledger settlement. Refactored `Router::chat` to delegate cleanly to `chat_stream`.
+- Wired `--stream` flag and streaming stdout delivery into `z models ask --stream`.
+- Added unit test `router::tests::streaming_delivers_tokens_and_handles_cancellation`
+  verifying chunk delivery, cost reservation, and cancellation semantics.
+
+### Real-Time Web Observer SSE Streaming & ANSI Terminal UI
+- Added `/api/session/{id}/stream` Server-Sent Events endpoint to `z-web` providing
+  push updates whenever session scrollback changes.
+- Revamped embedded web observer HTML with high-fidelity ANSI color parsing (16 colors,
+  256 colors, and 24-bit truecolor), traffic-light header controls, blinking terminal
+  cursor, history recall (Up/Down arrow), copy button, and auto-reconnecting stream.
+- Added unit test `server::tests::sse_streaming_endpoint_serves_events` and verified
+  via integration test `tests/cli_integration.rs`.
+
 ### Durable scrollback and session snapshots
 - Sessions now persist raw PTY output plus ANSI/plain screen snapshots under
   `<data>/scrollback/<id>` (5 s cadence and on exit, 16 MiB rotation, 0600

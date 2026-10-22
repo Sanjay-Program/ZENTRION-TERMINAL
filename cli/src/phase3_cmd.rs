@@ -625,11 +625,360 @@ pub fn ai(args: &[String], json_out: bool) -> ZenResult<()> {
             }
             Ok(())
         }
+        Some("fix") => {
+            let mut session_id: Option<String> = None;
+            let mut block_id: Option<String> = None;
+            let mut approve = false;
+            let mut custom_input = Vec::new();
+            let mut it = args.iter().skip(1);
+            while let Some(arg) = it.next() {
+                match arg.as_str() {
+                    "--session" => {
+                        session_id = it.next().cloned();
+                    }
+                    "--block" => {
+                        block_id = it.next().cloned();
+                    }
+                    "--approve" => {
+                        approve = true;
+                    }
+                    other => {
+                        custom_input.push(other.to_string());
+                    }
+                }
+            }
+
+            let store = z_blocks::BlockStore::open_default().ok();
+            let target_block = if let Some(ref bid) = block_id {
+                store.as_ref().and_then(|s| s.get(bid).ok().flatten())
+            } else if let Some(ref s) = store {
+                let filter = z_blocks::BlockFilter {
+                    session_id,
+                    exit_nonzero: true,
+                    limit: Some(20),
+                    ..Default::default()
+                };
+                s.list(&filter)
+                    .ok()
+                    .and_then(|blocks| blocks.into_iter().max_by_key(|b| b.started_at))
+            } else {
+                None
+            };
+
+            let (cmd, exit_code, output_text, cwd) = if let Some(ref b) = target_block {
+                let out_bytes = store
+                    .as_ref()
+                    .and_then(|s| s.output(&b.id).ok())
+                    .unwrap_or_default();
+                let text = String::from_utf8_lossy(&out_bytes);
+                let tail = if text.len() > 3000 {
+                    text[text.len() - 3000..].to_string()
+                } else {
+                    text.to_string()
+                };
+                (
+                    b.command.clone(),
+                    b.exit_code.unwrap_or(1),
+                    tail,
+                    b.cwd.clone(),
+                )
+            } else if !custom_input.is_empty() {
+                (
+                    custom_input.join(" "),
+                    1,
+                    custom_input.join(" "),
+                    ".".to_string(),
+                )
+            } else {
+                return Err(ZenError::new(
+                    Area::Ai,
+                    5218,
+                    "No failed command blocks recorded yet. Run commands in the terminal with shell integration or pass an error: `z ai fix <error>`",
+                ));
+            };
+
+            // Heuristic baseline
+            let (mut summary, mut root_cause, mut proposed_cmd, mut explanation) =
+                heuristic_diagnosis(&cmd, exit_code, &output_text);
+
+            // Attempt AI enhancement if provider available
+            if let Ok(provider) = ai::provider::provider_from_env() {
+                if let Ok(rt) = tokio::runtime::Runtime::new() {
+                    let gateway = ai::gateway::AIGateway::new(provider);
+                    let model = ai::provider::default_model();
+                    let sys_prompt = "You are Zentrion Terminal AI Assistant. A command just failed in the user's terminal.\nAnalyze the command, exit code, and terminal output.\nRespond with strictly valid JSON only without markdown formatting:\n{\"error_summary\": \"...\", \"root_cause\": \"...\", \"proposed_command\": \"...\", \"explanation\": \"...\"}";
+                    let user_prompt = format!(
+                        "Command: {}\nExit Code: {}\nDirectory: {}\nOutput:\n{}",
+                        cmd, exit_code, cwd, output_text
+                    );
+                    let req = ai::models::ChatRequest {
+                        model,
+                        messages: vec![
+                            ai::models::ChatMessage {
+                                role: "system".into(),
+                                content: sys_prompt.into(),
+                            },
+                            ai::models::ChatMessage {
+                                role: "user".into(),
+                                content: user_prompt,
+                            },
+                        ],
+                        temperature: Some(0.1),
+                    };
+                    if let Ok(resp) = rt.block_on(gateway.chat(req)) {
+                        if let Some(choice) = resp.choices.into_iter().next() {
+                            let text = choice.message.content.trim();
+                            let parsed = if let Some(start) = text.find('{') {
+                                if let Some(end) = text.rfind('}') {
+                                    serde_json::from_str::<serde_json::Value>(&text[start..=end])
+                                        .ok()
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            };
+                            if let Some(v) = parsed {
+                                if let Some(s) = v.get("error_summary").and_then(|x| x.as_str()) {
+                                    summary = s.to_string();
+                                }
+                                if let Some(rc) = v.get("root_cause").and_then(|x| x.as_str()) {
+                                    root_cause = rc.to_string();
+                                }
+                                if let Some(pc) = v.get("proposed_command").and_then(|x| x.as_str())
+                                {
+                                    proposed_cmd = pc.to_string();
+                                }
+                                if let Some(ex) = v.get("explanation").and_then(|x| x.as_str()) {
+                                    explanation = ex.to_string();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            let mut exec_result: Option<serde_json::Value> = None;
+            if approve {
+                let run_status = std::process::Command::new("sh")
+                    .arg("-c")
+                    .arg(&proposed_cmd)
+                    .output();
+                match run_status {
+                    Ok(out) => {
+                        let out_str = String::from_utf8_lossy(&out.stdout).to_string();
+                        let err_str = String::from_utf8_lossy(&out.stderr).to_string();
+                        exec_result = Some(json!({
+                            "status": if out.status.success() { "success" } else { "failed" },
+                            "exit_code": out.status.code().unwrap_or(-1),
+                            "stdout": out_str,
+                            "stderr": err_str,
+                        }));
+                    }
+                    Err(e) => {
+                        exec_result = Some(json!({
+                            "status": "error",
+                            "error": e.to_string(),
+                        }));
+                    }
+                }
+            }
+
+            if json_out {
+                let out = json!({
+                    "failed_command": cmd,
+                    "exit_code": exit_code,
+                    "cwd": cwd,
+                    "summary": summary,
+                    "root_cause": root_cause,
+                    "proposed_command": proposed_cmd,
+                    "explanation": explanation,
+                    "approved": approve,
+                    "execution": exec_result,
+                });
+                println!("{}", serde_json::to_string_pretty(&out)?);
+            } else {
+                println!("AI Terminal Diagnosis & Fix Proposal");
+                println!("  Failed Command:   {cmd} (exit code {exit_code})");
+                println!("  Directory:        {cwd}");
+                println!("  Summary:          {summary}");
+                println!("  Root Cause:       {root_cause}");
+                println!("  Proposed Fix:     {proposed_cmd}");
+                println!("  Explanation:      {explanation}");
+                println!();
+                if let Some(res) = exec_result {
+                    println!("Execution Result (Approved):");
+                    if let Some(stdout) = res.get("stdout").and_then(|s| s.as_str()) {
+                        if !stdout.is_empty() {
+                            println!("{stdout}");
+                        }
+                    }
+                    if let Some(stderr) = res.get("stderr").and_then(|s| s.as_str()) {
+                        if !stderr.is_empty() {
+                            eprintln!("{stderr}");
+                        }
+                    }
+                    println!(
+                        "Status: {}",
+                        res.get("status")
+                            .and_then(|s| s.as_str())
+                            .unwrap_or("completed")
+                    );
+                } else {
+                    println!("To execute this fix with human-in-the-loop approval, run:");
+                    println!("  z ai fix --approve");
+                }
+            }
+            Ok(())
+        }
+        Some("explain") => {
+            let target = args.get(1..).unwrap_or(&[]).join(" ");
+            let cmd_or_error = if !target.trim().is_empty() {
+                target
+            } else {
+                let store = z_blocks::BlockStore::open_default().ok();
+                let last_block = store.as_ref().and_then(|s| {
+                    s.list(&z_blocks::BlockFilter {
+                        limit: Some(1),
+                        ..Default::default()
+                    })
+                    .ok()
+                    .and_then(|mut b| b.pop())
+                });
+                if let Some(b) = last_block {
+                    b.command
+                } else {
+                    return Err(ZenError::new(
+                        Area::Ai,
+                        5219,
+                        "usage: z ai explain <command|error>",
+                    ));
+                }
+            };
+
+            if let Ok(provider) = ai::provider::provider_from_env() {
+                if let Ok(rt) = tokio::runtime::Runtime::new() {
+                    let gateway = ai::gateway::AIGateway::new(provider);
+                    let model = ai::provider::default_model();
+                    let sys = "You are Zentrion Terminal AI Assistant. Explain the following command, syntax, or error clearly, concisely, and practically for developers and SecOps.";
+                    let req = ai::models::ChatRequest {
+                        model,
+                        messages: vec![
+                            ai::models::ChatMessage {
+                                role: "system".into(),
+                                content: sys.into(),
+                            },
+                            ai::models::ChatMessage {
+                                role: "user".into(),
+                                content: cmd_or_error.clone(),
+                            },
+                        ],
+                        temperature: Some(0.2),
+                    };
+                    if let Ok(resp) = rt.block_on(gateway.chat(req)) {
+                        if let Some(choice) = resp.choices.into_iter().next() {
+                            let content = choice.message.content;
+                            if json_out {
+                                println!(
+                                    "{}",
+                                    serde_json::to_string_pretty(
+                                        &json!({"target": cmd_or_error, "explanation": content})
+                                    )?
+                                );
+                            } else {
+                                println!("Explanation for: {cmd_or_error}\n\n{content}");
+                            }
+                            return Ok(());
+                        }
+                    }
+                }
+            }
+
+            // Heuristic explanation
+            let (summary, _rc, proposed, expl) =
+                heuristic_diagnosis(&cmd_or_error, 0, &cmd_or_error);
+            if json_out {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "target": cmd_or_error,
+                        "summary": summary,
+                        "detail": expl,
+                        "suggestion": proposed
+                    }))?
+                );
+            } else {
+                println!("Explanation for: {cmd_or_error}");
+                println!("  Summary:    {summary}");
+                println!("  Detail:     {expl}");
+                println!("  Suggestion: {proposed}");
+            }
+            Ok(())
+        }
         Some(other) => Err(ZenError::new(
             Area::Cfg,
             5207,
             format!("unknown ai subcommand '{other}'"),
         )
-        .with_remediation("Usage: z ai [status|ask|analyze|privacy|auto|security|inventory|bom]")),
+        .with_remediation(
+            "Usage: z ai [status|ask|fix|explain|analyze|privacy|auto|security|inventory|bom]",
+        )),
+    }
+}
+
+fn heuristic_diagnosis(
+    cmd: &str,
+    exit_code: i32,
+    output: &str,
+) -> (String, String, String, String) {
+    let lower = output.to_lowercase();
+    let raw_first = cmd.split_whitespace().next().unwrap_or(cmd);
+    let first_cmd = raw_first.trim_matches(|c: char| c == ':' || c == '\'' || c == '"' || c == '`');
+
+    if exit_code == 127 || lower.contains("command not found") || lower.contains("not recognized") {
+        (
+            format!("Command '{first_cmd}' not found"),
+            format!("The executable '{first_cmd}' is not found in the system PATH."),
+            format!("z search {first_cmd}"),
+            format!("Search and install '{first_cmd}' using the Zentrion tool registry or your system package manager."),
+        )
+    } else if lower.contains("permission denied") || lower.contains("eacces") {
+        (
+            "Permission denied".to_string(),
+            "The current user does not have sufficient permissions to execute or access the requested resource.".to_string(),
+            format!("chmod +x {first_cmd}"),
+            "Grant execute permissions or review ownership before re-running with policy approval.".to_string(),
+        )
+    } else if lower.contains("no such file or directory") || lower.contains("enoent") {
+        (
+            "File or directory missing".to_string(),
+            "A referenced target file or directory does not exist on disk.".to_string(),
+            "ls -la".to_string(),
+            "Inspect the current directory structure to verify target path arguments.".to_string(),
+        )
+    } else if lower.contains("address already in use") || lower.contains("eaddrinuse") {
+        (
+            "Port already bound".to_string(),
+            "Another process or daemon is already listening on the requested port.".to_string(),
+            "ss -tulpn".to_string(),
+            "Inspect listening sockets and stop the conflicting background service.".to_string(),
+        )
+    } else if lower.contains("connection refused") || lower.contains("econnrefused") {
+        (
+            "Connection refused".to_string(),
+            "Target network port or local daemon is not running or rejecting connections."
+                .to_string(),
+            "z session status".to_string(),
+            "Verify network target host and confirm that the background daemon/service is active."
+                .to_string(),
+        )
+    } else {
+        (
+            format!("Command failed with exit code {exit_code}"),
+            format!("The command '{cmd}' terminated with non-zero exit code {exit_code}."),
+            format!("{cmd} --help"),
+            "Check command line flags, syntax, and error output to correct invocation parameters."
+                .to_string(),
+        )
     }
 }

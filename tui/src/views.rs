@@ -63,7 +63,7 @@ pub fn render_dashboard(
         0 => render_home(f, columns[1], info, theme),
         1 => render_workflows(f, columns[1], theme),
         2 => render_tools(f, columns[1], theme),
-        3 => render_agents(f, columns[1], theme),
+        3 => render_agents(f, columns[1], info, theme),
         4 => render_ai(f, columns[1], theme),
         5 => render_security(f, columns[1], theme),
         6 => render_storage(f, columns[1], info, theme),
@@ -312,38 +312,193 @@ fn render_tools(f: &mut Frame, area: Rect, theme: &Theme) {
     f.render_widget(tools, columns[1]);
 }
 
-fn render_agents(f: &mut Frame, area: Rect, theme: &Theme) {
+fn render_agents(f: &mut Frame, area: Rect, info: &DashboardInfo, theme: &Theme) {
+    let supervisor = z_agents::Supervisor::new(&info.data_dir, Vec::new());
+    let mut runs = supervisor.list();
+    let is_live = !runs.is_empty();
+    if runs.is_empty() {
+        runs = supervisor.history();
+    }
+    let pending_approvals = {
+        let broker_path = info.data_dir.join("agents").join("approvals.json");
+        if broker_path.exists() {
+            std::fs::read_to_string(&broker_path)
+                .ok()
+                .and_then(|t| serde_json::from_str::<Vec<z_agents::ApprovalRequest>>(&t).ok())
+                .map(|v: Vec<z_agents::ApprovalRequest>| {
+                    v.into_iter()
+                        .filter(|r| matches!(r.status, z_agents::ApprovalStatus::Pending))
+                        .count()
+                })
+                .unwrap_or(0)
+        } else {
+            0
+        }
+    };
+
     let rows = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(7), Constraint::Min(8)])
+        .constraints([
+            Constraint::Length(5),
+            Constraint::Min(10),
+            Constraint::Length(5),
+        ])
         .split(area);
-    let summary = Paragraph::new(vec![
-        Line::from("Profiles: planner, operator, security-reviewer, documenter"),
-        Line::from("Controls: max iterations, tool allowlist, approval gates"),
-        Line::from("Trace: plan -> handoff -> tool call -> observation -> final"),
-        Line::from("Requires ZENTRION_AI_PROVIDER for model-backed runs."),
+
+    let status_line = if is_live {
+        format!("Live: {} active daemon run(s)", runs.len())
+    } else if !runs.is_empty() {
+        format!("Idle ({} historical run(s) recorded)", runs.len())
+    } else {
+        "Idle — no agent runs recorded yet".to_string()
+    };
+
+    let header_lines = vec![
+        Line::from(vec![
+            Span::styled("Agent Supervisor: ", Style::default().add_modifier(Modifier::BOLD)),
+            Span::styled(
+                status_line,
+                Style::default().fg(if is_live { theme.success } else { theme.secondary }),
+            ),
+            Span::raw(" · "),
+            Span::styled(
+                format!("{pending_approvals} pending approvals"),
+                if pending_approvals > 0 {
+                    Style::default().fg(theme.warning).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(theme.secondary)
+                },
+            ),
+            Span::raw(" (Alt+A to review)"),
+        ]),
+        Line::from(vec![
+            Span::styled("Policy Guardrails: ", Style::default().fg(theme.primary)),
+            Span::raw("deny-by-default · single-use tokens · Ed25519 audit chain · sandbox check"),
+        ]),
+        Line::from(vec![
+            Span::styled("Adapters: ", Style::default().fg(theme.secondary)),
+            Span::raw("claude-code, codex, gemini, opencode, aider · Built-in: planner, operator, security-reviewer, documenter"),
+        ]),
+    ];
+
+    let header = Paragraph::new(header_lines).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(theme.secondary))
+            .title(" Agent Runtime & Supervisor "),
+    );
+    f.render_widget(header, rows[0]);
+
+    if runs.is_empty() {
+        let columns = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+            .split(rows[1]);
+
+        let guardrails = List::new([
+            ListItem::new("Input guardrail: classify intent and required permissions"),
+            ListItem::new("Tool guardrail: deny destructive or unapproved host effects"),
+            ListItem::new("Approval broker: single-use cryptographic tokens"),
+            ListItem::new("Output guardrail: require evidence and next-action clarity"),
+            ListItem::new("Rollback: content-addressed checkpoints before edits"),
+        ])
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(theme.secondary))
+                .title(" Active Guardrails "),
+        );
+        f.render_widget(guardrails, columns[0]);
+
+        let instructions = Paragraph::new(
+            "Start an agent:\n  z agent run <adapter> --prompt \"...\"\n\n\
+             List available adapters:\n  z agent adapters\n\n\
+             Review pending approvals:\n  Alt+A (or `z agent approvals`)\n\n\
+             View agent traces:\n  z agent trace <run-id>\n\n\
+             Profiles:\n  planner · operator · security-reviewer · documenter",
+        )
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(theme.secondary))
+                .title(" Quick Actions "),
+        );
+        f.render_widget(instructions, columns[1]);
+    } else {
+        let mut list_items = Vec::new();
+        list_items.push(ListItem::new(Line::from(vec![Span::styled(
+            format!(
+                "{:<24} {:<12} {:<14} {:<10} {:>10}  WORKSPACE",
+                "RUN ID", "AGENT", "STATE", "PROFILE", "ELAPSED"
+            ),
+            Style::default()
+                .add_modifier(Modifier::BOLD)
+                .fg(theme.secondary),
+        )])));
+
+        for run in &runs {
+            let state_style = match run.state.as_str() {
+                "running" => Style::default().fg(theme.success),
+                "waiting_input" => Style::default()
+                    .fg(theme.warning)
+                    .add_modifier(Modifier::BOLD),
+                "completed" => Style::default().fg(theme.primary),
+                "failed" => Style::default().fg(theme.error),
+                _ => Style::default().fg(theme.secondary),
+            };
+
+            let approx_str = if run.approximate { " [approx]" } else { "" };
+            let line = Line::from(vec![
+                Span::styled(format!("{:<24} ", run.id), Style::default().fg(theme.text)),
+                Span::styled(
+                    format!("{:<12} ", run.adapter_id),
+                    Style::default().fg(theme.primary),
+                ),
+                Span::styled(format!("{:<14} ", run.state.as_str()), state_style),
+                Span::styled(
+                    format!("{:<10} ", run.profile),
+                    Style::default().fg(theme.secondary),
+                ),
+                Span::styled(
+                    format!("{:>8}ms  ", run.elapsed_ms()),
+                    Style::default().fg(theme.text),
+                ),
+                Span::styled(
+                    format!("{}{}", run.workspace, approx_str),
+                    Style::default().fg(theme.secondary),
+                ),
+            ]);
+            list_items.push(ListItem::new(line));
+        }
+
+        let run_list = List::new(list_items).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(if is_live {
+                    theme.primary
+                } else {
+                    theme.secondary
+                }))
+                .title(if is_live {
+                    " Live Agent Runs "
+                } else {
+                    " Recent Agent Runs "
+                }),
+        );
+        f.render_widget(run_list, rows[1]);
+    }
+
+    let footer = Paragraph::new(vec![
+        Line::from("z agent run <adapter> --prompt \"...\"  ·  Alt+A: Approvals inbox  ·  F11: Search blocks"),
+        Line::from("Every agent tool call is audited to ~/.local/share/zentrion/audit/events.jsonl"),
     ])
     .block(
         Block::default()
             .borders(Borders::ALL)
             .border_style(Style::default().fg(theme.secondary))
-            .title(" Agent Runtime "),
+            .title(" Host Effect Governance "),
     );
-    f.render_widget(summary, rows[0]);
-    let guardrails = List::new([
-        ListItem::new("z agent profiles"),
-        ListItem::new("z agent run \"plan a safe scan of this repo\""),
-        ListItem::new("Input guardrail: classify intent and required permissions"),
-        ListItem::new("Tool guardrail: deny destructive or unapproved host effects"),
-        ListItem::new("Output guardrail: require evidence and next-action clarity"),
-    ])
-    .block(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(theme.secondary))
-            .title(" Guardrails "),
-    );
-    f.render_widget(guardrails, rows[1]);
+    f.render_widget(footer, rows[2]);
 }
 
 fn render_ai(f: &mut Frame, area: Rect, theme: &Theme) {

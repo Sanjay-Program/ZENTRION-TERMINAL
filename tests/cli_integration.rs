@@ -1335,6 +1335,11 @@ assert urllib.request.urlopen(req).status == 200
 time.sleep(0.7)
 snapshot = get('/api/session/' + sid, read)
 assert 'web-e2e' in snapshot['contents'], snapshot['contents']
+stream_req = urllib.request.Request(base + '/api/session/' + sid + '/stream?token=' + urllib.parse.quote(read))
+with urllib.request.urlopen(stream_req) as stream_resp:
+    assert 'text/event-stream' in stream_resp.headers.get('content-type', '')
+    first_line = stream_resp.readline().decode()
+    assert first_line.startswith('data:'), first_line
 print('ok')
 "#;
     let output = Command::new("python3")
@@ -1424,4 +1429,34 @@ cells:
     let (out, _, code) = run(&env, &root, &["audit", "verify"]);
     assert_eq!(code, 0);
     assert!(out.contains("verified"), "{out}");
+}
+
+#[test]
+fn ai_fix_and_explain_provide_diagnostics_and_proposals() {
+    let env = Env::new("ai-fix");
+    let root = env.project();
+
+    let (out, err, code) = run(&env, &root, &["ai", "explain", "chmod +x script.sh"]);
+    assert_eq!(code, 0, "{err}");
+    assert!(out.contains("Explanation for: chmod +x script.sh"), "{out}");
+
+    let (out, err, code) = run(&env, &root, &["ai", "fix", "cargo: command not found"]);
+    assert_eq!(code, 0, "{err}");
+    assert!(
+        out.contains("AI Terminal Diagnosis & Fix Proposal"),
+        "{out}"
+    );
+    assert!(out.contains("Command 'cargo' not found"), "{out}");
+    assert!(out.contains("Proposed Fix:"), "{out}");
+
+    let mut cmd = env.cmd_in(&root);
+    cmd.args(["--json", "ai", "fix", "permission denied: /var/log/syslog"]);
+    let out = cmd.output().expect("runs ai fix json");
+    assert!(out.status.success());
+    let parsed: serde_json::Value = serde_json::from_slice(&out.stdout).expect("valid json output");
+    assert_eq!(parsed["summary"], "Permission denied");
+    assert!(parsed["proposed_command"]
+        .as_str()
+        .unwrap()
+        .contains("chmod"));
 }

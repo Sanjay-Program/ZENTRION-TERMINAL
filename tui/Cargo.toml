@@ -20,6 +20,7 @@ ai = { version = "0.1.0", path = "../ai" }
 serde_yaml.workspace = true
 chrono.workspace = true
 base64.workspace = true
+serde_json.workspace = true
 z-vt = { path = "../z-vt" }
 z-blocks = { path = "../z-blocks" }
 z-session = { path = "../z-session" }

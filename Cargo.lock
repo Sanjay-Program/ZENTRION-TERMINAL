@@ -4298,6 +4298,7 @@ dependencies = [
  "p2p",
  "portable-pty",
  "ratatui",
+ "serde_json",
  "serde_yaml",
  "sysinfo",
  "tokio",

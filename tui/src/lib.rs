@@ -206,6 +206,7 @@ pub struct App {
     startup_error: Option<String>,
     pane_rects: Vec<Rect>,
     last_pane_size: (u16, u16),
+    font_scale: u16,
 }
 
 impl App {
@@ -284,6 +285,7 @@ impl App {
             startup_error: None,
             pane_rects: Vec::new(),
             last_pane_size: (40, 120),
+            font_scale: 100,
         };
         app.sys.refresh_all();
         app.new_tab();
@@ -948,6 +950,193 @@ impl App {
                 self.set_view(View::Home);
                 true
             }
+            "agents.dashboard" => {
+                self.set_view(View::from_dashboard_index(3));
+                true
+            }
+            "agents.approve" | "agents.deny" => {
+                let approve = action.action == "agents.approve";
+                self.refresh_approvals();
+                if let Some(request) = self.approvals.get(self.approval_selected).cloned() {
+                    if let Some(broker) = self.approval_broker() {
+                        let actor = std::env::var("USER").unwrap_or_else(|_| "local-user".into());
+                        let res = if approve {
+                            broker.approve(&request.id, &actor).map(|_| "approved")
+                        } else {
+                            broker.deny(&request.id, &actor).map(|_| "denied")
+                        };
+                        match res {
+                            Ok(outcome) => {
+                                self.approval_status = format!("{outcome} {}", request.id);
+                                self.notification_banner = Some((
+                                    format!("Agent request {outcome}: {}", request.id),
+                                    Instant::now(),
+                                ));
+                                self.refresh_approvals();
+                            }
+                            Err(error) => {
+                                self.approval_status = error.clone();
+                                self.notification_banner =
+                                    Some((format!("Approval error: {error}"), Instant::now()));
+                            }
+                        }
+                    }
+                }
+                true
+            }
+            "app.help" => {
+                self.set_view(View::from_dashboard_index(7));
+                true
+            }
+            "workflow.run" => {
+                self.set_view(View::from_dashboard_index(1));
+                true
+            }
+            "security.engagement" => {
+                self.set_view(View::from_dashboard_index(5));
+                true
+            }
+            "notification.dnd" => {
+                self.desktop_notifications = !self.desktop_notifications;
+                let state_msg = if self.desktop_notifications {
+                    "desktop notifications enabled"
+                } else {
+                    "do not disturb (desktop notifications muted)"
+                };
+                self.notification_banner = Some((state_msg.into(), Instant::now()));
+                true
+            }
+            "font.increase" => {
+                self.font_scale = (self.font_scale + 10).min(200);
+                self.notification_banner =
+                    Some((format!("Font scale: {}%", self.font_scale), Instant::now()));
+                true
+            }
+            "font.decrease" => {
+                self.font_scale = self.font_scale.saturating_sub(10).max(60);
+                self.notification_banner =
+                    Some((format!("Font scale: {}%", self.font_scale), Instant::now()));
+                true
+            }
+            "workspace.save" => {
+                let store = z_session::workspace::WorkspaceStore::new(&self.data_dir);
+                let name = action.arg.as_deref().unwrap_or("default");
+                let mut tabs = Vec::new();
+                for (t_idx, tab) in self.tabs.iter().enumerate() {
+                    let mut panes = Vec::new();
+                    for s in &tab.sessions {
+                        panes.push(z_session::workspace::Pane {
+                            cwd: Some(s.cwd.display().to_string()),
+                            title: Some(s.title.clone()),
+                            ..Default::default()
+                        });
+                    }
+                    tabs.push(z_session::workspace::Tab {
+                        title: tab.title(),
+                        layout: z_session::workspace::Layout {
+                            direction: z_session::workspace::Direction::Horizontal,
+                            panes,
+                        },
+                        focus: t_idx == self.active_tab,
+                    });
+                }
+                let mut ws = z_session::workspace::Workspace::new(name);
+                ws.tabs = tabs;
+                match store.save(&ws) {
+                    Ok(path) => {
+                        self.notification_banner = Some((
+                            format!("Workspace `{name}` saved ({})", path.display()),
+                            Instant::now(),
+                        ));
+                    }
+                    Err(e) => {
+                        self.notification_banner =
+                            Some((format!("Failed to save workspace: {e}"), Instant::now()));
+                    }
+                }
+                true
+            }
+            "workspace.open" => {
+                let store = z_session::workspace::WorkspaceStore::new(&self.data_dir);
+                let name = action.arg.as_deref().unwrap_or("default");
+                let (rows, cols) = self.last_pane_size;
+                match store.load(name) {
+                    Ok(ws) => {
+                        for tab_spec in ws.tabs {
+                            let mut sessions = Vec::new();
+                            for pane in &tab_spec.layout.panes {
+                                let cwd = pane.cwd.as_deref().map(PathBuf::from);
+                                if let Ok(sess) =
+                                    Session::spawn_command(&self.shell, &[], cwd, rows, cols)
+                                {
+                                    sessions.push(sess);
+                                }
+                            }
+                            if sessions.is_empty() {
+                                if let Ok(sess) = Session::spawn(rows, cols) {
+                                    sessions.push(sess);
+                                }
+                            }
+                            if !sessions.is_empty() {
+                                self.tabs.push(Tab { sessions, focus: 0 });
+                            }
+                        }
+                        if !self.tabs.is_empty() {
+                            self.active_tab = self.tabs.len() - 1;
+                        }
+                        self.set_view(View::Terminal);
+                        self.notification_banner =
+                            Some((format!("Workspace `{name}` restored"), Instant::now()));
+                    }
+                    Err(e) => {
+                        self.notification_banner =
+                            Some((format!("Workspace `{name}` error: {e}"), Instant::now()));
+                    }
+                }
+                true
+            }
+            "session.attach" => {
+                if let Some(target) = action.arg.as_deref() {
+                    if let Some(idx) = self.tabs.iter().position(|t| t.title().contains(target)) {
+                        self.active_tab = idx;
+                    }
+                }
+                self.set_view(View::Terminal);
+                true
+            }
+            "blocks.rerun" => {
+                if let Some((block, _)) = self.persisted_blocks.get(self.block_selected) {
+                    let cmd = block.command.clone();
+                    if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+                        if let Some(session) = tab.sessions.get_mut(tab.focus) {
+                            session.write_line(&cmd);
+                            self.show_blocks = false;
+                            self.notification_banner =
+                                Some((format!("Rerunning: {cmd}"), Instant::now()));
+                        }
+                    }
+                }
+                true
+            }
+            "blocks.share" => {
+                if let Some((block, _)) = self.persisted_blocks.get(self.block_selected) {
+                    self.notification_banner = Some((
+                        format!("Block `{}` shared (command: {})", block.id, block.command),
+                        Instant::now(),
+                    ));
+                }
+                true
+            }
+            "blocks.pin" => {
+                if let Some((block, _)) = self.persisted_blocks.get(self.block_selected) {
+                    self.notification_banner = Some((
+                        format!("Block `{}` pinned to agent context", block.id),
+                        Instant::now(),
+                    ));
+                }
+                true
+            }
+            "leader" => true,
             _ => false,
         };
         Ok(handled)
@@ -2195,5 +2384,26 @@ mod tests {
         let popup = centered_rect(area, 70, 50);
         assert!(popup.x + popup.width <= area.width);
         assert!(popup.y + popup.height <= area.height);
+    }
+
+    #[test]
+    fn all_configured_actions_are_handled() {
+        let mut app = App::new();
+        for spec in z_config::keys::ACTIONS {
+            let binding = z_config::ActionBinding {
+                action: spec.name.to_string(),
+                arg: if spec.takes_arg {
+                    Some("1".into())
+                } else {
+                    None
+                },
+            };
+            let handled = app.run_action(&binding).expect("action executes cleanly");
+            assert!(
+                handled,
+                "action `{}` from z-config::keys::ACTIONS was not handled by run_action",
+                spec.name
+            );
+        }
     }
 }
