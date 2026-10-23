@@ -16,6 +16,7 @@ members = [
     "nativetool",
     "tests", "sandbox", "tools", "ai", "agents", "mcp", "sdk", "plugin", "tui", "devsec", "enterprise", "bundled", "update", "daemon", "p2p",
     "z-vt", "z-blocks", "z-session", "z-config", "z-context", "z-checkpoint", "z-workflow", "z-security", "z-agents", "z-models", "z-remote", "z-web", "z-notebook", "bench",
+    "z-gui",
 ]
 resolver = "2"
 
@@ -48,6 +49,7 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 portable-pty = "0.9"
 vt100 = "0.18"
 vte = "0.15"
+tempfile = "3"
 
 # Production builds favour runtime speed and startup over compile time.
 [profile.release]

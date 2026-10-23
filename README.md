@@ -22,7 +22,7 @@
 [![Platform: Windows](https://img.shields.io/badge/Platform-Windows-blue?style=flat-square&logo=windows)](releases/README.md)
 [![Platform: macOS](https://img.shields.io/badge/Platform-macOS-silver?style=flat-square&logo=apple)](releases/README.md)
 [![Powered by Rust](https://img.shields.io/badge/Powered%20by-Rust-orange?style=flat-square&logo=rust)](Cargo.toml)
-[![Tests: Passing](https://img.shields.io/badge/Tests-57%20Integration%20Passing-success?style=flat-square)](tests/cli_integration.rs)
+[![Tests: Passing](https://img.shields.io/badge/Tests-60%20Integration%20Passing-success?style=flat-square)](tests/cli_integration.rs)
 
 </div>
 
@@ -213,10 +213,21 @@ z ai fix --approve          # Execute proposed fix with human approval
 z ai explain <cmd>          # Explain command flags or error codes
 z models ask "prompt" --stream # Real-time streaming model completion
 
-# SecOps & Security Testing
+# SecOps & Penetration Testing Cheat Sheets & Payloads
+z security cheatsheet xss   # Built-in cheat sheets (XSS, SQLi, CSRF, SSRF, LFI, Recon)
+z security payload sqli     # Curated injection test vectors and polyglots
+z security headers <url>    # Automated HTTP security header grading (A+ to F)
 z security scan .           # Detect hardcoded credentials and SAST patterns
 z engagement create scope   # Register authorized penetration testing scope
 z engagement run <id> <cmd> # Run command with strict scope validation
+
+# Cloud & Microservice Mesh Telemetry
+z cloud telemetry --sidecar envoy # Envoy/Istio sidecar traffic telemetry
+z cloud anomaly --sidecar istio   # Dual-engine microservice anomaly detection
+
+# Policy Governance & Safeguards
+z policy simulate           # Replay policy against historic audit traffic
+z policy push --approve     # Deploy policy with human-in-the-loop approval
 
 # Remote & Collaboration
 z remote exec <host> <cmd>  # Strict host-key SSH command execution
@@ -233,7 +244,7 @@ Every subsystem is verified with automated tests:
 # Run all workspace unit tests
 cargo test --workspace
 
-# Run complete CLI end-to-end integration suite (57 tests)
+# Run complete CLI end-to-end integration suite (60 tests)
 cargo test -p z-integration-tests --test cli_integration
 
 # Verify tree-wide clippy lints

@@ -1460,3 +1460,73 @@ fn ai_fix_and_explain_provide_diagnostics_and_proposals() {
         .unwrap()
         .contains("chmod"));
 }
+
+#[test]
+fn security_cheatsheet_and_payload_lookup() {
+    let env = Env::new("sec-cheat");
+    let root = env.project();
+
+    let (out, err, code) = run(&env, &root, &["security", "cheatsheet"]);
+    assert_eq!(code, 0, "{err}");
+    assert!(out.contains("Threat-Aware Security Cheat Sheets"), "{out}");
+    assert!(out.contains("Cross-Site Scripting"), "{out}");
+
+    let (out, err, code) = run(&env, &root, &["security", "cheatsheet", "sqli"]);
+    assert_eq!(code, 0, "{err}");
+    assert!(out.contains("SQL Injection (SQLi)"), "{out}");
+    assert!(out.contains("UNION SELECT"), "{out}");
+
+    let (out, err, code) = run(&env, &root, &["security", "payload", "xss"]);
+    assert_eq!(code, 0, "{err}");
+    assert!(out.contains("Security Payloads [XSS]"), "{out}");
+    assert!(out.contains("<script>alert(1)</script>"), "{out}");
+
+    let mut cmd = env.cmd_in(&root);
+    cmd.args(["--json", "security", "payload", "sqli", "blind"]);
+    let out = cmd.output().expect("runs payload json");
+    assert!(out.status.success());
+    let parsed: serde_json::Value = serde_json::from_slice(&out.stdout).expect("valid json output");
+    assert!(parsed.as_array().unwrap().len() >= 2);
+}
+
+#[test]
+fn cloud_telemetry_and_anomaly_detection() {
+    let env = Env::new("cloud-telemetry");
+    let root = env.project();
+
+    let (out, err, code) = run(&env, &root, &["cloud", "telemetry", "--sidecar", "envoy"]);
+    assert_eq!(code, 0, "{err}");
+    assert!(
+        out.contains("Cloud & Microservice Mesh Telemetry [envoy]"),
+        "{out}"
+    );
+    assert!(out.contains("Total Requests:"), "{out}");
+
+    let (out, err, code) = run(&env, &root, &["cloud", "anomaly", "--sidecar", "istio"]);
+    assert_eq!(code, 0, "{err}");
+    assert!(
+        out.contains("Dual-Engine Microservice Anomaly Detection [istio]"),
+        "{out}"
+    );
+    assert!(out.contains("ANOMALIES IDENTIFIED"), "{out}");
+}
+
+#[test]
+fn policy_simulate_and_push_safeguards() {
+    let env = Env::new("pol-safeguards");
+    let root = env.project();
+
+    let (out, err, code) = run(&env, &root, &["policy", "simulate"]);
+    assert_eq!(code, 0, "{err}");
+    assert!(out.contains("Policy Simulation & Historic Replay"), "{out}");
+    assert!(out.contains("Events Replayed:"), "{out}");
+
+    let (out, err, code) = run(&env, &root, &["policy", "push"]);
+    assert_eq!(code, 0, "{err}");
+    assert!(out.contains("Human-in-the-Loop Safeguard"), "{out}");
+    assert!(out.contains("z policy push --approve"), "{out}");
+
+    let (out, err, code) = run(&env, &root, &["policy", "push", "--approve"]);
+    assert_eq!(code, 0, "{err}");
+    assert!(out.contains("successfully verified and deployed"), "{out}");
+}

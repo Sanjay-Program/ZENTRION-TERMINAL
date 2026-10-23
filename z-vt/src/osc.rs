@@ -104,6 +104,14 @@ pub enum OscEvent {
         selection: String,
         data: String,
     },
+    /// Terminal graphics payload (Kitty, Sixel, or iTerm2).
+    Graphic(crate::graphics::GraphicMedia),
+    /// SGR styled underline and RGB underline color.
+    Underline(crate::underlines::StyledUnderline),
+    /// DECSET 2026 synchronized output status (true = begin, false = end).
+    SyncOutput(bool),
+    /// Kitty keyboard protocol event or configuration.
+    KittyKeyboard(String),
     OscRejected {
         code: u16,
         reason: String,
@@ -381,10 +389,23 @@ impl Performer<'_> {
     }
 
     fn handle_osc1337(&mut self, params: &[&[u8]]) {
-        // OSC 1337 ; Zentrion ; <base64-json>
+        // OSC 1337 ; File=... OR OSC 1337 ; Zentrion ; <base64-json>
         let Some(namespace) = params.get(1).and_then(|v| std::str::from_utf8(v).ok()) else {
             return;
         };
+
+        if namespace.starts_with("File=") || namespace.eq_ignore_ascii_case("File") {
+            let full_payload = params[1..]
+                .iter()
+                .map(|p| String::from_utf8_lossy(p).to_string())
+                .collect::<Vec<_>>()
+                .join(";");
+            if let Some(media) = crate::graphics::ITerm2GraphicsParser::parse(&full_payload) {
+                self.push(OscEvent::Graphic(media));
+                return;
+            }
+        }
+
         if !namespace.eq_ignore_ascii_case("Zentrion") {
             // iTerm2 image/user-var sequences are ignored by the text layer.
             self.push(OscEvent::Ignored { code: 1337 });
@@ -423,11 +444,42 @@ impl vte::Perform for Performer<'_> {
     fn execute(&mut self, _byte: u8) {}
     fn csi_dispatch(
         &mut self,
-        _params: &vte::Params,
-        _intermediates: &[u8],
+        params: &vte::Params,
+        intermediates: &[u8],
         _ignore: bool,
-        _action: char,
+        action: char,
     ) {
+        if intermediates == [b'?'] {
+            for p in params.iter() {
+                if p == &[2026] {
+                    if action == 'h' {
+                        self.push(OscEvent::SyncOutput(true));
+                    } else if action == 'l' {
+                        self.push(OscEvent::SyncOutput(false));
+                    }
+                }
+            }
+        } else if action == 'm' {
+            let flat: Vec<u16> = params.iter().flat_map(|sub| sub.iter().copied()).collect();
+            if let Some(styled) = crate::underlines::StyledUnderline::parse_sgr_sequence(&flat) {
+                self.push(OscEvent::Underline(styled));
+            }
+        } else if action == 'u' {
+            let mut flat_str = String::new();
+            for (idx, sub) in params.iter().enumerate() {
+                if idx > 0 {
+                    flat_str.push(';');
+                }
+                for (s_idx, val) in sub.iter().enumerate() {
+                    if s_idx > 0 {
+                        flat_str.push(':');
+                    }
+                    flat_str.push_str(&val.to_string());
+                }
+            }
+            flat_str.push('u');
+            self.push(OscEvent::KittyKeyboard(flat_str));
+        }
     }
     fn esc_dispatch(&mut self, _intermediates: &[u8], _ignore: bool, _byte: u8) {}
 }

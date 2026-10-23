@@ -44,8 +44,11 @@ enum Commands {
     /// Show version, platform, architecture and build type
     Version,
 
-    /// Check host, configuration and project health (offline)
-    Doctor,
+    /// Check host, configuration and project health (offline by default, use --online for network checks)
+    Doctor {
+        #[arg(long, help = "Probe configured LLM endpoints, MCP servers, and tool registries")]
+        online: bool,
+    },
 
     /// Show runtime, project, policy and audit status
     Status,
@@ -433,7 +436,7 @@ fn main() {
             Ok(())
         }
         Some(Commands::Version) => commands::version(cli.json),
-        Some(Commands::Doctor) => commands::doctor(cli.json, cli.project.clone()),
+        Some(Commands::Doctor { online }) => commands::doctor(cli.json, cli.project.clone(), online),
         Some(Commands::Status) => commands::status(cli.json, cli.project.clone()),
         Some(Commands::Setup) => commands::setup(cli.json),
         Some(Commands::Storage { args }) => commands::storage(&args, cli.json),

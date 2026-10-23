@@ -17,3 +17,4 @@ flate2.workspace = true
 walkdir = "2.5"
 z-core = { path = "../core" }
 z-blocks = { path = "../z-blocks" }
+uuid.workspace = true

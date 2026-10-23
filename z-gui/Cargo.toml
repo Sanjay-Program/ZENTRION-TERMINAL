@@ -1,0 +1,43 @@
+[package]
+name = "z-gui"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "GPU-accelerated window backend for Zentrion Terminal (winit + wgpu + cosmic-text)"
+
+[features]
+default = []
+quake-drop = []
+
+[dependencies]
+anyhow.workspace = true
+log.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true }
+
+# Window & event loop
+winit = { version = "0.30", features = ["rwh_06"] }
+
+# GPU rendering
+wgpu = { version = "0.20", features = ["wgsl"] }
+bytemuck = { version = "1.16", features = ["derive"] }
+
+# Glyph rasterization
+cosmic-text = "0.12"
+fontdb    = "0.22"
+swash     = "0.1"
+
+# Atlas rect packing
+guillotiere = "0.6"
+
+# Config hot-reload
+notify = "6"
+
+# Shared terminal model
+z-vt = { path = "../z-vt" }
+
+[dev-dependencies]
+env_logger.workspace = true
+tempfile.workspace = true

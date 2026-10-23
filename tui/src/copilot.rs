@@ -1,4 +1,6 @@
-//! Real AI copilot sidebar backed by the gateway/provider layer.
+//! Real AI copilot sidebar backed by the gateway/provider layer,
+//! with SQLite-backed persistent conversation history, FTS5 semantic indexing,
+//! and sliding-window semantic compaction with automated PII and secret redaction.
 
 use crate::theme::Theme;
 use ai::gateway::AIGateway;
@@ -13,8 +15,8 @@ use ratatui::{
 };
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::thread;
-
-const MAX_HISTORY: usize = 24;
+use uuid::Uuid;
+use z_context::conversation::ConversationStore;
 
 pub struct Copilot {
     pub messages: Vec<ChatMessage>,
@@ -22,28 +24,94 @@ pub struct Copilot {
     pub pending: bool,
     pub status: String,
     pub scroll: u16,
+    pub session_id: String,
+    pub active_block_id: Option<String>,
+    store: Option<ConversationStore>,
     rx: Option<Receiver<Result<String, String>>>,
 }
 
 impl Default for Copilot {
     fn default() -> Self {
-        Self {
-            messages: vec![ChatMessage {
+        let session_id = Uuid::new_v4().to_string();
+        let store = ConversationStore::open_default().ok();
+
+        let mut initial_messages = Vec::new();
+        if let Some(ref st) = store {
+            if let Ok(history) = st.get_history(&session_id, 100) {
+                for turn in history {
+                    initial_messages.push(ChatMessage {
+                        role: turn.role,
+                        content: turn.content,
+                    });
+                }
+            }
+        }
+
+        if initial_messages.is_empty() {
+            initial_messages.push(ChatMessage {
                 role: "assistant".into(),
                 content: "Copilot ready. Ask about the current terminal, an error, your project, or a command. \
                           I never run commands for you; I propose them for review."
                     .into(),
-            }],
+            });
+        }
+
+        Self {
+            messages: initial_messages,
             input: String::new(),
             pending: false,
             status: "Powered by ZENTRION_AI_PROVIDER (local Ollama by default)".into(),
             scroll: 0,
+            session_id,
+            active_block_id: None,
+            store,
             rx: None,
         }
     }
 }
 
 impl Copilot {
+    #[allow(dead_code)]
+    pub fn new_with_session(session_id: String, store: Option<ConversationStore>) -> Self {
+        let mut initial_messages = Vec::new();
+        if let Some(ref st) = store {
+            if let Ok(history) = st.get_history(&session_id, 100) {
+                for turn in history {
+                    initial_messages.push(ChatMessage {
+                        role: turn.role,
+                        content: turn.content,
+                    });
+                }
+            }
+        }
+
+        if initial_messages.is_empty() {
+            initial_messages.push(ChatMessage {
+                role: "assistant".into(),
+                content: "Copilot ready. Ask about the current terminal, an error, your project, or a command. \
+                          I never run commands for you; I propose them for review."
+                    .into(),
+            });
+        }
+
+        Self {
+            messages: initial_messages,
+            input: String::new(),
+            pending: false,
+            status: "Powered by ZENTRION_AI_PROVIDER (local Ollama by default)".into(),
+            scroll: 0,
+            session_id,
+            active_block_id: None,
+            store,
+            rx: None,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn set_active_block(&mut self, block_id: Option<String>) {
+        self.active_block_id = block_id;
+    }
+
     pub fn submit(&mut self) {
         let prompt = self.input.trim().to_string();
         if prompt.is_empty() || self.pending {
@@ -52,16 +120,73 @@ impl Copilot {
         self.input.clear();
         self.messages.push(ChatMessage {
             role: "user".into(),
-            content: prompt,
+            content: prompt.clone(),
         });
         self.pending = true;
         self.status = "Thinking…".into();
         self.scroll = 0;
 
-        let history: Vec<ChatMessage> = {
-            let start = self.messages.len().saturating_sub(MAX_HISTORY);
-            self.messages[start..].to_vec()
+        // Persist user turn into the SQLite conversation store linked to session & OSC 133 block
+        if let Some(ref st) = self.store {
+            let _ = st.record_turn(
+                &self.session_id,
+                self.active_block_id.as_deref(),
+                "user",
+                &prompt,
+            );
+        }
+
+        // Sliding-window semantic compaction with FTS5 retrieval & PII redaction
+        let outbound_messages: Vec<ChatMessage> = if let Some(ref st) = self.store {
+            match st.compact_session(&self.session_id, 12, Some(&prompt)) {
+                Ok(compacted) => {
+                    let mut msgs = Vec::new();
+                    if let Some(summary) = compacted.summary {
+                        msgs.push(ChatMessage {
+                            role: "system".into(),
+                            content: format!("Context Summary: {summary}"),
+                        });
+                    }
+                    for ctx in compacted.retrieved_context {
+                        msgs.push(ChatMessage {
+                            role: "system".into(),
+                            content: format!("Relevant Context: {ctx}"),
+                        });
+                    }
+                    for turn in compacted.recent_turns {
+                        // Use redacted_content to guarantee no secret/PII leaks
+                        msgs.push(ChatMessage {
+                            role: turn.role,
+                            content: turn.redacted_content,
+                        });
+                    }
+                    msgs
+                }
+                Err(_) => self
+                    .messages
+                    .iter()
+                    .map(|m| {
+                        let (redacted, _) = z_blocks::share::redact(&m.content);
+                        ChatMessage {
+                            role: m.role.clone(),
+                            content: redacted,
+                        }
+                    })
+                    .collect(),
+            }
+        } else {
+            self.messages
+                .iter()
+                .map(|m| {
+                    let (redacted, _) = z_blocks::share::redact(&m.content);
+                    ChatMessage {
+                        role: m.role.clone(),
+                        content: redacted,
+                    }
+                })
+                .collect()
         };
+
         let (tx, rx) = mpsc::channel();
         self.rx = Some(rx);
 
@@ -73,7 +198,7 @@ impl Copilot {
                       concrete. Prefer real commands, explain risk, and never claim you \
                       executed anything. If a task needs a host action, provide the exact \
                       command for the user to run.";
-                let result = request(system, history);
+                let result = request(system, outbound_messages);
                 let _ = tx.send(result);
             })
             .ok();
@@ -89,6 +214,16 @@ impl Copilot {
                 self.rx = None;
                 match result {
                     Ok(text) => {
+                        // Persist assistant turn into conversation store
+                        if let Some(ref st) = self.store {
+                            let _ = st.record_turn(
+                                &self.session_id,
+                                self.active_block_id.as_deref(),
+                                "assistant",
+                                &text,
+                            );
+                        }
+
                         self.messages.push(ChatMessage {
                             role: "assistant".into(),
                             content: text,
@@ -224,4 +359,28 @@ pub(crate) fn request(system: &str, history: Vec<ChatMessage>) -> Result<String,
             .map(|choice| choice.message.content)
             .ok_or_else(|| "the provider returned an empty response".to_string())
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_copilot_creation_with_in_memory_store() {
+        let store = ConversationStore::open_in_memory().unwrap();
+        store
+            .record_turn(
+                "test-sess",
+                Some("block-1"),
+                "user",
+                "Hello copilot secret=12345",
+            )
+            .unwrap();
+
+        let copilot = Copilot::new_with_session("test-sess".into(), Some(store));
+        assert_eq!(copilot.session_id, "test-sess");
+        assert_eq!(copilot.messages.len(), 1);
+        assert_eq!(copilot.messages[0].role, "user");
+        assert_eq!(copilot.messages[0].content, "Hello copilot secret=12345");
+    }
 }

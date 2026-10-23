@@ -2,6 +2,19 @@
 
 ## Unreleased — blueprint implementation
 
+### Threat-Aware Cybersecurity Cheatsheets, Payloads & Security Headers Assessment
+- Added `z security cheatsheet [topic]` with built-in penetration testing guides and defense strategies for XSS, SQLi, CSRF, SSRF, LFI, HTTP headers, and network reconnaissance.
+- Added `z security payload <category> [filter]` offering categorized test vectors (XSS polyglots, SQLi auth/union/time-based blind, CSRF auto-submitting HTML PoCs, SSRF cloud metadata endpoints, and LFI filters).
+- Added `z security headers <url>`: automated HTTP security header assessment testing HSTS, CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy, and technology disclosures with automated score (0-100) and letter grading (A+ to F).
+
+### Cloud & Microservice Mesh Telemetry & Dual-Engine Anomaly Detection
+- Added `z cloud telemetry [--sidecar envoy|istio] [--file <path>]` parsing microservice mesh traffic, tracking HTTP status distribution, error rates, average/P99 latency, and Envoy response flags (`UT`, `UF`).
+- Added `z cloud anomaly`: dual-engine anomaly detection combining deterministic rules (5xx spikes, 401/403 authorization bursts, ingress path traversal scanning) with plain-language incident summaries and sidecar tuning remediation.
+
+### Policy Simulation Sandbox & Human-in-the-Loop Safeguards
+- Added `z policy simulate` / `z policy replay` to test and evaluate policies against historic audit ledger events, detecting breaking changes and regressions before activation.
+- Added `z policy push [--approve]` enforcing mandatory human-in-the-loop admin approval prior to live policy enforcement.
+
 ### TUI Keybinding Action Dispatch & Coverage
 - Implemented full action dispatch in `tui::App::run_action` for all 26 configured
   actions in `z_config::keys::ACTIONS`. Added handling for `agents.dashboard`,

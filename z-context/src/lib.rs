@@ -6,10 +6,12 @@
 //! files, and never sends anything that was not indexed. Symbol extraction is
 //! lexer-level and labelled approximate; it does not claim tree-sitter accuracy.
 
+pub mod conversation;
 pub mod index;
 pub mod pack;
 pub mod symbols;
 
+pub use conversation::{CompactedContext, ConversationStore, ConversationTurn};
 pub use index::{
     fts_expression, FileEntry, IndexOptions, IndexStats, IndexStatus, RepoIndex, SearchHit,
 };
@@ -18,3 +20,4 @@ pub use pack::{
     RedactionCount,
 };
 pub use symbols::{extract_symbols, language_for, Symbol};
+

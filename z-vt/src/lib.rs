@@ -13,12 +13,22 @@
 //! Terminal output is untrusted data. Parsing never executes or opens
 //! anything; the UI decides, through policy, whether an action is allowed.
 
+pub mod graphics;
+pub mod kitty_kbd;
 pub mod links;
 pub mod osc;
 pub mod screen;
+pub mod scrollback;
 pub mod search;
+pub mod sync;
+pub mod underlines;
 
+pub use graphics::{GraphicMedia, KittyGraphicsParser, ITerm2GraphicsParser, SixelDecoder};
+pub use kitty_kbd::{KittyKeyboardState, KittyKeyEvent};
 pub use links::{detect_links, is_safe_scheme, DetectedLink, LinkKind};
 pub use osc::{OscEvent, ProgressState, ShellIntegrationMeta, ShellMark, VtPolicy, VtScanner};
 pub use screen::Terminal;
+pub use scrollback::PageScrollback;
 pub use search::{search_text, SearchHit, SearchOptions, Selection};
+pub use sync::SynchronizedOutput;
+pub use underlines::StyledUnderline;

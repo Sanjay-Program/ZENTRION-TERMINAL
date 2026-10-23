@@ -1,18 +1,25 @@
 //! A screen model that keeps the terminal parser and the OSC policy scanner in
-//! lock-step.
-//!
-//! Byte streams are fed once to [`vt100`] for rendering and once to
-//! [`VtScanner`] for policy events. The two parsers are independent so a
-//! malformed sequence can never corrupt the screen, and the scanner never sees
-//! a different byte order than the screen.
+//! lock-step, integrating DECSET 2026 synchronized output, Kitty keyboard protocol,
+//! Kitty/Sixel/iTerm2 graphics, styled underlines, and compressed scrollback.
 
+use crate::graphics::{GraphicMedia, KittyGraphicsParser};
+use crate::kitty_kbd::KittyKeyboardState;
 use crate::osc::{OscEvent, ProgressState, ShellMark, VtPolicy, VtScanner};
+use crate::scrollback::PageScrollback;
 use crate::search::{SearchHit, SearchOptions, Selection};
+use crate::sync::SynchronizedOutput;
+use crate::underlines::StyledUnderline;
 use std::num::NonZeroU16;
 
 pub struct Terminal {
     parser: vt100::Parser,
     scanner: VtScanner,
+    sync: SynchronizedOutput,
+    kitty_kbd: KittyKeyboardState,
+    kitty_graphics: KittyGraphicsParser,
+    graphics: Vec<GraphicMedia>,
+    scrollback_pages: PageScrollback,
+    underline: StyledUnderline,
     marks: Vec<ShellMark>,
     title: Option<String>,
     cwd: Option<String>,
@@ -27,6 +34,12 @@ impl Terminal {
         Self {
             parser: vt100::Parser::new(nonzero(rows), nonzero(cols), scrollback),
             scanner: VtScanner::new(VtPolicy::default()),
+            sync: SynchronizedOutput::default(),
+            kitty_kbd: KittyKeyboardState::new(),
+            kitty_graphics: KittyGraphicsParser::new(),
+            graphics: Vec::new(),
+            scrollback_pages: PageScrollback::new(scrollback.max(10_000), 16),
+            underline: StyledUnderline::default(),
             marks: Vec::new(),
             title: None,
             cwd: None,
@@ -43,11 +56,37 @@ impl Terminal {
 
     /// Feed terminal output. Returns policy events in stream order.
     pub fn process(&mut self, bytes: &[u8]) -> Vec<OscEvent> {
-        self.parser.process(bytes);
-        let events = self.scanner.advance(bytes);
-        for event in &events {
-            self.observe(event);
+        let mut events = Vec::new();
+
+        // Check for Kitty graphics escape sequence: \x1b_G...;\x1b\
+        if let Some(start) = bytes.windows(3).position(|w| w == b"\x1b_G") {
+            if let Some(end) = bytes[start..].windows(2).position(|w| w == b"\x1b\\") {
+                let seq = String::from_utf8_lossy(&bytes[start + 3..start + end]);
+                if let Some(media) = self.kitty_graphics.parse(&seq) {
+                    let media: GraphicMedia = media.clone();
+                    events.push(OscEvent::Graphic(media.clone()));
+                    self.graphics.push(media);
+                }
+            }
         }
+
+        // Process through DECSET 2026 synchronized output engine
+        let ready_bytes = self.sync.process_stream(bytes);
+        if !ready_bytes.is_empty() {
+            self.parser.process(&ready_bytes);
+            let mut osc_events = self.scanner.advance(&ready_bytes);
+            for event in &osc_events {
+                self.observe(event);
+            }
+            events.append(&mut osc_events);
+
+            // Record printed lines into compressed scrollback buffer
+            let text = String::from_utf8_lossy(&ready_bytes);
+            for line in text.lines() {
+                self.scrollback_pages.push_line(line.to_string());
+            }
+        }
+
         events
     }
 
@@ -65,8 +104,6 @@ impl Terminal {
                     _ => {}
                 }
                 self.marks.push(mark.clone());
-                // Marks are only useful relative to recent output; keep the
-                // buffer bounded for long-lived sessions.
                 if self.marks.len() > 4096 {
                     self.marks.drain(..1024);
                 }
@@ -74,6 +111,11 @@ impl Terminal {
             OscEvent::Progress { state, pct } => self.progress = Some((*state, *pct)),
             OscEvent::Hyperlink { uri, .. } => self.last_hyperlink = Some(uri.clone()),
             OscEvent::HyperlinkEnd => self.last_hyperlink = None,
+            OscEvent::Graphic(ref media) => self.graphics.push(media.clone()),
+            OscEvent::Underline(ref u) => self.underline = *u,
+            OscEvent::KittyKeyboard(ref seq) => {
+                let _ = self.kitty_kbd.handle_csi(seq);
+            }
             _ => {}
         }
     }
@@ -103,7 +145,6 @@ impl Terminal {
         self.parser.screen().contents()
     }
 
-    /// A self-contained ANSI keyframe suitable for a reattaching client.
     pub fn keyframe(&self) -> String {
         self.parser.screen().contents_formatted()
     }
@@ -126,6 +167,38 @@ impl Terminal {
 
     pub fn marks(&self) -> &[ShellMark] {
         &self.marks
+    }
+
+    pub fn graphics(&self) -> &[GraphicMedia] {
+        &self.graphics
+    }
+
+    pub fn sync(&self) -> &SynchronizedOutput {
+        &self.sync
+    }
+
+    pub fn sync_mut(&mut self) -> &mut SynchronizedOutput {
+        &mut self.sync
+    }
+
+    pub fn kitty_kbd(&self) -> &KittyKeyboardState {
+        &self.kitty_kbd
+    }
+
+    pub fn kitty_kbd_mut(&mut self) -> &mut KittyKeyboardState {
+        &mut self.kitty_kbd
+    }
+
+    pub fn scrollback_pages(&self) -> &PageScrollback {
+        &self.scrollback_pages
+    }
+
+    pub fn scrollback_pages_mut(&mut self) -> &mut PageScrollback {
+        &mut self.scrollback_pages
+    }
+
+    pub fn underline(&self) -> &StyledUnderline {
+        &self.underline
     }
 
     pub fn search(&self, options: &SearchOptions) -> Result<Vec<SearchHit>, regex::Error> {
@@ -152,7 +225,7 @@ fn nonzero(value: u16) -> NonZeroU16 {
 #[cfg(test)]
 mod tests {
     use super::*;
-
+    use base64::Engine as _;
     #[test]
     fn screen_and_marks_stay_in_sync() {
         let mut terminal = Terminal::new(24, 80, 1000);
@@ -182,5 +255,39 @@ mod tests {
         assert_eq!(terminal.size(), (6, 30));
         terminal.set_scrollback(2);
         assert_eq!(terminal.scrollback(), 2);
+    }
+
+    #[test]
+    fn test_sync_output_in_terminal() {
+        let mut terminal = Terminal::new(10, 40, 100);
+        // Begin synchronized update, feed bytes, then end
+        terminal.process(b"\x1b[?2026h");
+        assert!(terminal.sync().is_active());
+        terminal.process(b"Synchronized text payload\x1b[?2026l");
+        assert!(!terminal.sync().is_active());
+        assert!(terminal.contents().contains("Synchronized text payload"));
+    }
+
+    #[test]
+    fn test_sgr_styled_underline_detection() {
+        let mut terminal = Terminal::new(10, 40, 100);
+        terminal.process(b"\x1b[4:3;58;2;255;128;0mUnderlined Text");
+        assert_eq!(terminal.underline().style, crate::underlines::UnderlineStyle::Curly);
+        assert_eq!(
+            terminal.underline().color,
+            crate::underlines::UnderlineColor::Rgb(255, 128, 0)
+        );
+    }
+
+    #[test]
+    fn test_iterm2_image_event() {
+        let mut terminal = Terminal::new(10, 40, 100);
+        let base64_data = base64::engine::general_purpose::STANDARD.encode(b"PNG_SAMPLE");
+        let osc = format!("\x1b]1337;File=inline=1;width=100;height=100:{}\x07", base64_data);
+        let events = terminal.process(osc.as_bytes());
+
+        assert!(events.iter().any(|e| matches!(e, OscEvent::Graphic(_))));
+        assert_eq!(terminal.graphics().len(), 1);
+        assert_eq!(terminal.graphics()[0].payload, b"PNG_SAMPLE");
     }
 }

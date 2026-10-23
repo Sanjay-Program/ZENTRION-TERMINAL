@@ -13,8 +13,10 @@ mod session;
 mod theme;
 mod views;
 mod widget;
+mod split;
 
 pub use session::Session;
+pub use split::{SplitDirection, SplitTree};
 pub use theme::Theme;
 
 use anyhow::Result;
@@ -127,20 +129,59 @@ impl View {
 struct Tab {
     sessions: Vec<Session>,
     focus: usize,
+    tree: SplitTree,
+    zoomed: bool,
+    broadcast: bool,
 }
 
 impl Tab {
+    fn new(session: Session) -> Self {
+        Self {
+            sessions: vec![session],
+            focus: 0,
+            tree: SplitTree::new_leaf(0),
+            zoomed: false,
+            broadcast: false,
+        }
+    }
+
+    fn from_sessions(sessions: Vec<Session>) -> Self {
+        let mut tree = SplitTree::new_leaf(0);
+        for i in 1..sessions.len() {
+            let dir = if i % 2 == 1 {
+                SplitDirection::Vertical
+            } else {
+                SplitDirection::Horizontal
+            };
+            tree.split_leaf(i - 1, i, dir);
+        }
+        Self {
+            sessions,
+            focus: 0,
+            tree,
+            zoomed: false,
+            broadcast: false,
+        }
+    }
+
     fn title(&self) -> String {
         let active = self
             .sessions
             .get(self.focus)
             .or_else(|| self.sessions.first());
         let name = active.map(|s| s.title.as_str()).unwrap_or("shell");
-        if self.sessions.len() > 1 {
+        let mut base = if self.sessions.len() > 1 {
             format!("{name} +{}", self.sessions.len() - 1)
         } else {
             name.to_string()
+        };
+        if self.zoomed {
+            base.push_str(" [ZOOM]");
         }
+        if self.broadcast {
+            base.push_str(" [BC]");
+        }
+        base
     }
 }
 
@@ -391,10 +432,7 @@ impl App {
         let (rows, cols) = self.last_pane_size;
         match Session::spawn(rows, cols) {
             Ok(session) => {
-                self.tabs.push(Tab {
-                    sessions: vec![session],
-                    focus: 0,
-                });
+                self.tabs.push(Tab::new(session));
                 self.active_tab = self.tabs.len() - 1;
                 self.view = View::Terminal;
             }
@@ -405,18 +443,26 @@ impl App {
     }
 
     fn split_pane(&mut self) {
+        self.split_pane_dir(SplitDirection::Horizontal);
+    }
+
+    fn split_pane_dir(&mut self, direction: SplitDirection) {
         let (rows, cols) = self.last_pane_size;
         let Some(tab) = self.tabs.get_mut(self.active_tab) else {
             return;
         };
-        if tab.sessions.len() >= 4 {
-            self.palette_hint = "A tab can hold at most four panes".into();
-            return;
-        }
-        match Session::spawn(rows / 2, cols / 2) {
+        let (spawn_rows, spawn_cols) = match direction {
+            SplitDirection::Horizontal => (rows / 2, cols),
+            SplitDirection::Vertical => (rows, cols / 2),
+        };
+        match Session::spawn(spawn_rows.max(5), spawn_cols.max(10)) {
             Ok(session) => {
+                let new_idx = tab.sessions.len();
+                let current_focus = tab.focus;
+                tab.tree.split_leaf(current_focus, new_idx, direction);
                 tab.sessions.push(session);
-                tab.focus = tab.sessions.len() - 1;
+                tab.focus = new_idx;
+                tab.zoomed = false;
             }
             Err(e) => self.startup_error = Some(format!("{e:#}")),
         }
@@ -438,31 +484,36 @@ impl App {
         };
         if close_tab {
             self.tabs.remove(self.active_tab);
-            self.active_tab = self.active_tab.min(self.tabs.len() - 1);
+            self.active_tab = self.active_tab.min(self.tabs.len().saturating_sub(1));
             return;
         }
         let Some(tab) = self.tabs.get_mut(self.active_tab) else {
             return;
         };
-        tab.sessions.remove(tab.focus);
-        if tab.sessions.is_empty() {
-            // Never leave the UI without a usable terminal. Replace the last
-            // pane with a fresh shell rather than showing an empty screen.
-            let (rows, cols) = self.last_pane_size;
-            if let Ok(session) = Session::spawn(rows, cols) {
-                tab.sessions.push(session);
-                tab.focus = 0;
+        if tab.sessions.len() > 1 {
+            let removed = tab.focus;
+            tab.tree.remove_leaf(removed);
+            tab.sessions.remove(removed);
+            tab.tree.shift_indices_after(removed);
+            tab.focus = tab.focus.min(tab.sessions.len().saturating_sub(1));
+            return;
+        }
+
+        // Single pane in the last tab: replace with fresh shell
+        let (rows, cols) = self.last_pane_size;
+        if let Ok(session) = Session::spawn(rows, cols) {
+            tab.sessions = vec![session];
+            tab.focus = 0;
+            tab.tree = SplitTree::new_leaf(0);
+            tab.zoomed = false;
+        } else {
+            self.tabs.remove(self.active_tab);
+            if self.tabs.is_empty() {
+                self.running = false;
             } else {
-                self.tabs.remove(self.active_tab);
-                if self.tabs.is_empty() {
-                    self.running = false;
-                } else {
-                    self.active_tab = self.active_tab.min(self.tabs.len() - 1);
-                }
-                return;
+                self.active_tab = self.active_tab.min(self.tabs.len().saturating_sub(1));
             }
         }
-        tab.focus = tab.focus.min(tab.sessions.len().saturating_sub(1));
     }
 
     fn cycle_pane(&mut self) {
@@ -480,8 +531,14 @@ impl App {
     }
 
     fn send_to_terminal(&mut self, bytes: &[u8]) {
-        if let Some(session) = self.active_session_mut() {
-            session.write(bytes);
+        if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+            if tab.broadcast {
+                for session in &mut tab.sessions {
+                    session.write(bytes);
+                }
+            } else if let Some(session) = tab.sessions.get_mut(tab.focus) {
+                session.write(bytes);
+            }
         }
     }
 
@@ -626,8 +683,10 @@ impl App {
             let terminal_area = chunks[1];
 
             if let Some(tab) = self.tabs.get_mut(self.active_tab) {
-                let rects = pane_areas(terminal_area, tab.sessions.len());
-                for (index, rect) in rects.iter().copied().enumerate() {
+                let zoomed_leaf = if tab.zoomed { Some(tab.focus) } else { None };
+                let rect_pairs = tab.tree.layout(terminal_area, zoomed_leaf);
+                let mut ordered_rects = vec![Rect::default(); tab.sessions.len()];
+                for (index, rect) in rect_pairs {
                     if let Some(session) = tab.sessions.get_mut(index) {
                         let focused = index == tab.focus && !self.copilot_focus;
                         widget::render_session(
@@ -638,9 +697,12 @@ impl App {
                             focused,
                             self.reduced_motion,
                         );
-                        pane_rects.push(rect);
+                        if index < ordered_rects.len() {
+                            ordered_rects[index] = rect;
+                        }
                     }
                 }
+                pane_rects = ordered_rects;
             }
             if let Some(error) = &self.startup_error {
                 if pane_rects.is_empty() {
@@ -881,6 +943,28 @@ impl App {
                 self.set_view(View::Terminal);
                 true
             }
+            "pane.split_h" => {
+                self.split_pane_dir(SplitDirection::Horizontal);
+                self.set_view(View::Terminal);
+                true
+            }
+            "pane.split_v" => {
+                self.split_pane_dir(SplitDirection::Vertical);
+                self.set_view(View::Terminal);
+                true
+            }
+            "pane.zoom" => {
+                if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+                    tab.zoomed = !tab.zoomed;
+                }
+                true
+            }
+            "pane.broadcast" => {
+                if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+                    tab.broadcast = !tab.broadcast;
+                }
+                true
+            }
             "pane.close" => {
                 self.close_focused();
                 true
@@ -1078,7 +1162,7 @@ impl App {
                                 }
                             }
                             if !sessions.is_empty() {
-                                self.tabs.push(Tab { sessions, focus: 0 });
+                                self.tabs.push(Tab::from_sessions(sessions));
                             }
                         }
                         if !self.tabs.is_empty() {
@@ -1772,6 +1856,24 @@ impl App {
         }
 
         if alt {
+            if shift {
+                match key.code {
+                    KeyCode::Left | KeyCode::Up => {
+                        if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+                            tab.tree.adjust_ratio(tab.focus, -0.05);
+                        }
+                        return Ok(());
+                    }
+                    KeyCode::Right | KeyCode::Down => {
+                        if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+                            tab.tree.adjust_ratio(tab.focus, 0.05);
+                        }
+                        return Ok(());
+                    }
+                    _ => {}
+                }
+            }
+
             if let KeyCode::Char(c) = key.code {
                 if c.is_ascii_digit() {
                     let index = if c == '0' {
@@ -1786,6 +1888,20 @@ impl App {
                     } else if index < views::DASHBOARD_VIEWS.len() {
                         self.dashboard_index = index;
                         self.set_view(View::from_dashboard_index(index));
+                    }
+                    return Ok(());
+                }
+                if c.eq_ignore_ascii_case(&'z') {
+                    if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+                        tab.zoomed = !tab.zoomed;
+                        self.notification_banner = Some((
+                            if tab.zoomed {
+                                "Pane ZOOMED (Alt+Z to restore)".into()
+                            } else {
+                                "Pane unzoomed".into()
+                            },
+                            Instant::now(),
+                        ));
                     }
                     return Ok(());
                 }
@@ -1938,10 +2054,19 @@ impl App {
                         _ => {}
                     }
                 }
-                if let Some(session) = self.active_session_mut() {
-                    let app_cursor = session.parser.screen().application_cursor();
-                    if let Some(bytes) = session::encode_key(key, app_cursor) {
-                        session.write(&bytes);
+                if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+                    if tab.broadcast {
+                        for session in &mut tab.sessions {
+                            let app_cursor = session.parser.screen().application_cursor();
+                            if let Some(bytes) = session::encode_key(key, app_cursor) {
+                                session.write(&bytes);
+                            }
+                        }
+                    } else if let Some(session) = tab.sessions.get_mut(tab.focus) {
+                        let app_cursor = session.parser.screen().application_cursor();
+                        if let Some(bytes) = session::encode_key(key, app_cursor) {
+                            session.write(&bytes);
+                        }
                     }
                 }
             }
@@ -2042,8 +2167,40 @@ impl App {
                     self.show_palette = false;
                 }
                 "split" => {
-                    self.split_pane();
+                    let dir = if argument.to_ascii_lowercase().starts_with('v') {
+                        SplitDirection::Vertical
+                    } else {
+                        SplitDirection::Horizontal
+                    };
+                    self.split_pane_dir(dir);
                     self.set_view(View::Terminal);
+                    self.show_palette = false;
+                }
+                "vsplit" | "vs" => {
+                    self.split_pane_dir(SplitDirection::Vertical);
+                    self.set_view(View::Terminal);
+                    self.show_palette = false;
+                }
+                "broadcast" => {
+                    if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+                        tab.broadcast = !tab.broadcast;
+                        self.palette_hint = if tab.broadcast {
+                            "Broadcast mode ENABLED: input mirrored to all panes in this tab".into()
+                        } else {
+                            "Broadcast mode DISABLED".into()
+                        };
+                    }
+                    self.show_palette = false;
+                }
+                "zoom" => {
+                    if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+                        tab.zoomed = !tab.zoomed;
+                        self.palette_hint = if tab.zoomed {
+                            "Pane ZOOMED (Alt+Z to restore)".into()
+                        } else {
+                            "Pane unzoomed".into()
+                        };
+                    }
                     self.show_palette = false;
                 }
                 "close" => {
@@ -2118,7 +2275,7 @@ impl App {
                 }
                 other => {
                     self.palette_hint = format!(
-                        "Unknown action `:{other}`. Try :new, :split, :close, :theme, :view, :e, :ai, :chat, :quit"
+                        "Unknown action `:{other}`. Try :new, :split, :vsplit, :broadcast, :zoom, :close, :theme, :view, :e, :ai, :chat, :quit"
                     );
                 }
             }
@@ -2133,42 +2290,28 @@ impl App {
     }
 }
 
+#[allow(dead_code)]
 fn pane_areas(area: Rect, count: usize) -> Vec<Rect> {
-    match count {
-        0 => vec![],
-        1 => vec![area],
-        2 => Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-            .split(area)
-            .to_vec(),
-        3 => {
-            let outer = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-                .split(area);
-            let right = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-                .split(outer[1]);
-            vec![outer[0], right[0], right[1]]
-        }
-        _ => {
-            let rows = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-                .split(area);
-            let top = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-                .split(rows[0]);
-            let bottom = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-                .split(rows[1]);
-            vec![top[0], top[1], bottom[0], bottom[1]]
+    if count == 0 {
+        return vec![];
+    }
+    let mut tree = SplitTree::new_leaf(0);
+    for i in 1..count {
+        let dir = if i % 2 == 1 {
+            SplitDirection::Vertical
+        } else {
+            SplitDirection::Horizontal
+        };
+        tree.split_leaf(i - 1, i, dir);
+    }
+    let pairs = tree.layout(area, None);
+    let mut out = vec![Rect::default(); count];
+    for (idx, r) in pairs {
+        if idx < count {
+            out[idx] = r;
         }
     }
+    out
 }
 
 fn open_url(target: &str) -> std::io::Result<()> {

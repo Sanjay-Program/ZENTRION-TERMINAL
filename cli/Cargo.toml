@@ -57,3 +57,4 @@ crossterm = "0.29.0"
 base64.workspace = true
 chrono.workspace = true
 libc = "0.2"
+ureq = "2.12"
